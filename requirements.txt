@@ -1,7 +1,1 @@
-streamlit
-pandas
-google-generativeai
-gspread
-google-auth
 google-api-python-client
-Pillow
