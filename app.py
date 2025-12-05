@@ -105,7 +105,8 @@ def load_students_from_sheet():
     
     try:
         client = gspread.authorize(creds)
-        sheet = client.open("MA학원_DB").worksheet("students")
+# students 시트 불러올 때
+sheet = client.open_by_key("1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ").worksheet("students")
         return pd.DataFrame(sheet.get_all_records())
     except Exception as e:
         st.error(f"학생 명단 로딩 실패: {e}")
@@ -118,7 +119,8 @@ def save_result_to_sheet(student_name, grade, unit, summary, image_link):
     
     try:
         client = gspread.authorize(creds)
-        sheet = client.open("MA학원_DB").worksheet("results")
+# results 시트 불러올 때
+sheet = client.open_by_key("1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ").worksheet("results")
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         # [날짜, 이름, 학년, 단원, 내용, 이미지링크] 순서로 저장
@@ -269,4 +271,5 @@ if img_file:
                 
             except Exception as e:
                 st.error(f"분석 중 오류 발생: {e}")
+
 
