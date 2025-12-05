@@ -9,33 +9,27 @@ from googleapiclient.http import MediaIoBaseUpload
 import datetime
 import io
 
-# ==========================================================
-# 🛑 [필수 설정] 폴더 ID 및 시트 ID 설정
-# ==========================================================
-# 원장님이 주신 ID에서 뒤에 ?hl=ko 같은 잡동사니는 뺐습니다. (그래야 작동합니다)
-DRIVE_FOLDER_ID = "1zl6EoXAitDFUWVYoLBtorSJw-JrOm_fG"
-SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
-
-# ==========================================================
-# [1] 기본 설정 및 인증
-# ==========================================================
+# ----------------------------------------------------------
+# [1] 설정 (ID 유지)
+# ----------------------------------------------------------
 st.set_page_config(page_title="MA학원 AI 오답 도우미", page_icon="🏫")
 
-# 1. Gemini API 인증
+SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
+FOLDER_ID = "1zl6EoXAitDFUWVYoLBtorSJw-JrOm_fG"
+
 try:
     GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
     genai.configure(api_key=GOOGLE_API_KEY)
 except:
-    st.error("오류: Secrets에 GOOGLE_API_KEY가 없습니다.")
+    st.error("Secrets에 GOOGLE_API_KEY가 없습니다.")
     st.stop()
 
-# 2. 구글 클라우드(시트+드라이브) 인증
-def get_gcp_creds():
+# ----------------------------------------------------------
+# [2] 구글 연결 (시트 & 드라이브)
+# ----------------------------------------------------------
+def get_credentials():
     try:
-        # Secrets에서 서비스 계정 정보 가져오기
         secrets = st.secrets["gcp_service_account"]
-        
-        # 권한 범위: 구글 시트 + 구글 드라이브 모두 사용
         scopes = [
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
@@ -43,233 +37,228 @@ def get_gcp_creds():
         creds = Credentials.from_service_account_info(secrets, scopes=scopes)
         return creds
     except Exception as e:
-        st.error(f"구글 계정 인증 실패: {e}")
+        st.error(f"인증 실패: {e}")
         return None
 
-# ==========================================================
-# [2] 기능 함수 (업로드, 읽기, 쓰기)
-# ==========================================================
-
-# A. 이미지를 구글 드라이브에 올리는 함수
+# ----------------------------------------------------------
+# [3] 드라이브 업로드 (안전장치 포함)
+# ----------------------------------------------------------
 def upload_image_to_drive(image_file, student_name):
-    creds = get_gcp_creds()
+    creds = get_credentials()
     if not creds: return None
-    
+
     try:
-        # 구글 드라이브 도구 준비
         service = build('drive', 'v3', credentials=creds)
+        filename = f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_{student_name}.jpg"
         
-        # 파일 이름 만들기 (예: 20240520_143000_김철수.jpg)
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        file_name = f"{timestamp}_{student_name}.jpg"
-        
-        # 이미지를 업로드 가능한 형태로 변환
-        img_byte_arr = io.BytesIO()
-        image = Image.open(image_file)
-        
-        # 이미지 포맷에 따라 저장 (PNG, JPG 등)
-        if image.format:
-            fmt = image.format
-        else:
-            fmt = 'JPEG'
-            
-        image.save(img_byte_arr, format=fmt)
-        img_byte_arr.seek(0) # 파일 포인터 초기화
-        
-        # 메타데이터 (어느 폴더에 넣을지)
         file_metadata = {
-            'name': file_name,
-            'parents': [DRIVE_FOLDER_ID] 
+            'name': filename,
+            'parents': [FOLDER_ID] 
         }
+        media = MediaIoBaseUpload(image_file, mimetype='image/jpeg')
         
-        media = MediaIoBaseUpload(img_byte_arr, mimetype=f'image/{fmt.lower()}')
-        
-        # 실제 업로드 실행
         file = service.files().create(
             body=file_metadata,
             media_body=media,
             fields='id, webViewLink'
         ).execute()
-        
-        # 업로드된 파일의 보기 링크(URL) 반환
         return file.get('webViewLink')
         
     except Exception as e:
-        st.error(f"이미지 업로드 실패: {e}")
-        return "업로드_오류"
+        print(f"업로드 실패 (분석은 진행): {e}") 
+        return "업로드_실패(용량부족)"
 
-# B. 학생 명단 불러오기 (구글 시트)
-def load_students_from_sheet():
-    creds = get_gcp_creds()
-    if not creds: return None
-    
+# ----------------------------------------------------------
+# [4] 시트 데이터 저장
+# ----------------------------------------------------------
+def save_result_to_sheet(student_name, grade, unit, analysis_summary, image_link):
+    creds = get_credentials()
+    if not creds: return
     try:
         client = gspread.authorize(creds)
-        # students 시트 불러올 때 (들여쓰기 수정됨)
+        sheet = client.open_by_key(SHEET_ID).worksheet("results")
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        sheet.append_row([now, student_name, grade, unit, analysis_summary, image_link])
+        st.toast("✅ 학습 데이터 저장 완료!", icon="💾")
+    except Exception as e:
+        st.error(f"시트 저장 실패: {e}")
+
+def load_students_from_sheet():
+    creds = get_credentials()
+    if not creds: return None
+    try:
+        client = gspread.authorize(creds)
         sheet = client.open_by_key(SHEET_ID).worksheet("students")
         return pd.DataFrame(sheet.get_all_records())
     except Exception as e:
-        st.error(f"학생 명단 로딩 실패: {e}")
+        st.error(f"명단 오류: {e}")
         return None
 
-# C. 분석 결과 및 링크 저장하기 (구글 시트)
-def save_result_to_sheet(student_name, grade, unit, summary, image_link):
-    creds = get_gcp_creds()
-    if not creds: return
-    
-    try:
-        client = gspread.authorize(creds)
-        # results 시트 불러올 때 (들여쓰기 수정됨)
-        sheet = client.open_by_key(SHEET_ID).worksheet("results")
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        # [날짜, 이름, 학년, 단원, 내용, 이미지링크] 순서로 저장
-        sheet.append_row([now, student_name, grade, unit, summary, image_link])
-        st.toast("✅ 구글 시트와 드라이브에 저장 완료!", icon="💾")
-    except Exception as e:
-        st.error(f"데이터 저장 실패: {e}")
-
-# ==========================================================
-# [3] 로그인 화면
-# ==========================================================
+# ----------------------------------------------------------
+# [5] 메인 로직 (로그인 및 UI)
+# ----------------------------------------------------------
+# 세션 상태 초기화 (새로고침 해도 데이터 유지용)
 if 'is_logged_in' not in st.session_state:
     st.session_state['is_logged_in'] = False
     st.session_state['user_name'] = None
+if 'analysis_result' not in st.session_state:
+    st.session_state['analysis_result'] = None
+if 'gemini_image' not in st.session_state:
+    st.session_state['gemini_image'] = None
 
-if not st.session_state['is_logged_in']:
+def login_page():
     st.markdown("<h1 style='text-align: center;'>🔒 MA학원 로그인</h1>", unsafe_allow_html=True)
-    
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         user_id = st.text_input("아이디")
         user_pw = st.text_input("비밀번호", type="password")
-        
         if st.button("로그인", use_container_width=True):
             with st.spinner("확인 중..."):
                 df = load_students_from_sheet()
-                
-            if df is not None:
-                # 데이터 타입 통일 (문자열)
+            if df is not None and not df.empty:
                 df['id'] = df['id'].astype(str)
                 df['pw'] = df['pw'].astype(str)
-                
                 user_data = df[df['id'] == user_id]
-                
-                if not user_data.empty:
-                    correct_pw = user_data.iloc[0]['pw']
-                    user_name = user_data.iloc[0]['name']
-                    
-                    if user_pw == correct_pw:
-                        st.session_state['is_logged_in'] = True
-                        st.session_state['user_name'] = user_name
-                        st.rerun()
-                    else:
-                        st.error("비밀번호가 틀렸습니다.")
-                else:
-                    st.error("없는 아이디입니다.")
-            else:
-                st.error("DB 연결에 실패했습니다.")
+                if not user_data.empty and user_data.iloc[0]['pw'] == user_pw:
+                    st.session_state['is_logged_in'] = True
+                    st.session_state['user_name'] = user_data.iloc[0]['name']
+                    st.rerun()
+                else: st.error("정보 불일치")
+            else: st.error("명단 로딩 실패")
+
+if not st.session_state['is_logged_in']:
+    login_page()
     st.stop()
 
-# ==========================================================
-# [4] 메인 앱 화면
-# ==========================================================
+# --- 사이드바 ---
 with st.sidebar:
-    st.success(f"👋 안녕, {st.session_state['user_name']}!")
+    st.success(f"👋 {st.session_state['user_name']} 학생")
     if st.button("로그아웃"):
         st.session_state['is_logged_in'] = False
+        st.session_state['analysis_result'] = None # 로그아웃 시 분석결과 초기화
         st.rerun()
-        
     st.markdown("---")
-    st.header("설정")
-    grade_options = ["초4", "초5", "초6", "중1", "중2", "중3", "고1(공통)", "고2(수1/2)", "고3(미적/확통)"]
-    student_grade = st.selectbox("학년", grade_options)
+    student_grade = st.selectbox("학년", ["초4", "초5", "초6", "중1", "중2", "중3", "고1", "고2", "고3"])
     
-    # 말투 설정
+    # 학년별 말투 설정
     if any(x in student_grade for x in ["초", "중1", "중2"]):
-        tone_instruction = "친절하고 다정하게, 용기를 북돋아주는 말투로 설명해."
+        tone = "친절하고 상세하게, 하지만 핵심은 정확하게 짚어주며"
     else:
-        tone_instruction = "엄격하고 건조하게, 핵심만 짚어서 논리적으로 설명해."
+        tone = "대치동 1타 강사처럼 엄격하고 논리정연하게, 팩트 위주로"
 
-col1, col2 = st.columns([1, 4])
-with col1:
-    try: st.image("logo.png", use_container_width=True)
-    except: st.write("🏫")
-with col2:
-    st.markdown("### 🏫 MA학원 AI 오답 도우미")
+st.markdown("### 🏫 MA학원 AI 오답 도우미")
 
-st.info("문제를 찍으면 [풀이]해주고 [구글 드라이브]에 원본을 저장합니다.")
-
-# ----------------------------------------------------------
-# [5] 문제 업로드 및 실행
-# ----------------------------------------------------------
 tab1, tab2 = st.tabs(["📸 카메라", "📂 갤러리"])
 img_file = None
-
 with tab1:
-    cam = st.camera_input("문제 촬영")
+    cam = st.camera_input("촬영")
     if cam: img_file = cam
 with tab2:
     up = st.file_uploader("파일 선택", type=['jpg', 'png'])
     if up: img_file = up
 
+# ----------------------------------------------------------
+# [6] 분석 실행 로직 (강화된 페르소나 + 정답 가리기)
+# ----------------------------------------------------------
 if img_file:
-    # 미리보기
-    image = Image.open(img_file)
-    st.image(image, caption="선택된 문제")
+    # 이미지를 바이트로 변환하여 세션 및 업로드용으로 준비
+    img_bytes = img_file.getvalue()
+    image_for_view = Image.open(io.BytesIO(img_bytes))
     
-    if st.button("🚀 분석 및 저장 시작", type="primary"):
-        
-        # 1. 이미지 업로드 (드라이브)
-        image_link = "저장안함"
-        with st.spinner("1/2단계: 구글 드라이브에 사진 저장 중..."):
-            image_link = upload_image_to_drive(img_file, st.session_state['user_name'])
-            
-            if image_link == "업로드_오류" or not image_link:
-                st.error("사진 저장 실패 (폴더 ID 확인 필요)")
-                image_link = "저장실패"
-            else:
-                st.success("사진 저장 완료!")
+    st.image(image_for_view, caption="선택된 문제")
 
-        # 2. AI 분석 (Gemini)
-        with st.spinner("2/2단계: 대치동 1타 강사 빙의 중..."):
+    # 분석 버튼
+    if st.button("🔍 1타 강사 분석 시작", type="primary"):
+        # 1. 이미지 세션에 저장 (나중에 추가 생성할 때 쓰려고)
+        st.session_state['gemini_image'] = Image.open(io.BytesIO(img_bytes))
+        image_for_upload = io.BytesIO(img_bytes)
+
+        # 2. 드라이브 업로드 (실패해도 진행)
+        with st.spinner("사진 저장 중..."):
+            link = upload_image_to_drive(image_for_upload, st.session_state['user_name'])
+
+        # 3. AI 분석
+        with st.spinner("대치동 20년 경력 선생님이 분석 중입니다..."):
             try:
-                # 원장님이 원하시는 모델 (2.5 Flash) 적용
-                model = genai.GenerativeModel('gemini-2.5-flash')
+                model = genai.GenerativeModel('gemini-1.5-flash')
                 
+                # 🔥 강화된 프롬프트
                 prompt = f"""
-                [Role] 대치동 20년 경력 1타 강사. 철저하게 분석하세요. 
+                당신은 '대치동 수학 학원에서 20년 이상 학생들을 가르친 최고의 베테랑 강사'입니다.
                 학생 학년: {student_grade}
+                말투: {tone}
                 
-                [Output]
-                1. [단원: 대단원>중단원] 표시.
-                2. 출제 의도 1줄 요약.
-                3. 상세 풀이 (말투: {tone_instruction})
-                4. 오답 함정(Tip).
-                5. 쌍둥이 문제 1개 (지문 뒤에 `[[정답_및_해설_시작]]` 넣고 정답 적기).
+                [반드시 지켜야 할 지시사항]
+                1. 첫 줄에 [단원: 단원명]을 명시하세요.
+                2. 문제 풀이는 매우 꼼꼼하고 철저하게 작성하세요. 학생이 자주 틀리는 실수 포인트가 있다면 따끔하게 지적해주세요.
+                3. 마지막에 숫자와 조건만 바꾼 '쌍둥이 문제'를 1개 출제하세요.
+                4. **중요:** 쌍둥이 문제의 정답과 풀이는 맨 마지막에 **===해설===** 이라는 구분선을 넣고 그 뒤에 작성하세요. (학생이 바로 답을 못 보게 하기 위함입니다)
                 """
                 
-                response = model.generate_content([prompt, image])
-                result_text = response.text  
+                response = model.generate_content([prompt, st.session_state['gemini_image']])
+                st.session_state['analysis_result'] = response.text # 결과 기억하기
                 
-                st.markdown("### 📝 분석 결과")
-                st.write(result_text)
-                
-                # 단원명 추출 로직
+                # 시트 저장
                 unit_name = "미분류"
-                if "[단원:" in result_text:
-                    try:
-                        unit_name = result_text.split("[단원:")[1].split("]")[0].strip()
+                if "[단원:" in response.text:
+                    try: unit_name = response.text.split("[단원:")[1].split("]")[0].strip()
                     except: pass
                 
-                # 3. 구글 시트 저장
                 save_result_to_sheet(
-                    st.session_state['user_name'],
-                    student_grade,
-                    unit_name,
-                    result_text[:300] + "...", 
-                    image_link 
+                    st.session_state['user_name'], 
+                    student_grade, 
+                    unit_name, 
+                    response.text[:300] + "...", 
+                    link
                 )
                 
             except Exception as e:
-                st.error(f"분석 중 오류 발생: {e}")
+                st.error(f"분석 오류: {e}")
+
+# ----------------------------------------------------------
+# [7] 결과 보여주기 (정답 가리기 기능 적용)
+# ----------------------------------------------------------
+if st.session_state['analysis_result']:
+    st.markdown("---")
+    st.markdown("### 📝 선생님의 분석 결과")
+    
+    # 결과를 '===해설===' 기준으로 자름
+    full_text = st.session_state['analysis_result']
+    parts = full_text.split("===해설===")
+    
+    # 1부: 분석 내용 + 쌍둥이 문제 (정답 없음)
+    st.write(parts[0])
+    
+    # 2부: 정답 (버튼 눌러야 보임)
+    if len(parts) > 1:
+        with st.expander("🔐 쌍둥이 문제 정답 및 해설 보기 (클릭)"):
+            st.info("먼저 풀어보고 확인하세요!")
+            st.write(parts[1])
+            
+    st.markdown("---")
+    
+    # [8] 쌍둥이 문제 추가 생성 버튼
+    if st.button("🔄 쌍둥이 문제 더 만들기 (추가 생성)"):
+        with st.spinner("비슷한 문제를 하나 더 만드는 중..."):
+            try:
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                extra_prompt = f"""
+                위의 문제와 난이도가 비슷한 새로운 쌍둥이 문제를 1개 더 만들어주세요.
+                학생 학년: {student_grade}
+                말투: {tone}
+                **중요:** 이번에도 정답과 해설은 맨 마지막에 **===해설===** 구분선을 넣고 그 뒤에 적어주세요.
+                """
+                # 이전에 저장해둔 이미지를 다시 활용
+                response_extra = model.generate_content([extra_prompt, st.session_state['gemini_image']])
+                
+                # 추가 문제 출력 로직
+                extra_parts = response_extra.text.split("===해설===")
+                st.markdown("#### ➕ 추가 쌍둥이 문제")
+                st.write(extra_parts[0])
+                
+                if len(extra_parts) > 1:
+                    with st.expander("🔐 추가 문제 정답 보기"):
+                        st.write(extra_parts[1])
+                        
+            except Exception as e:
+                st.error(f"추가 생성 실패: {e}")
