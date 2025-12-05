@@ -39,10 +39,22 @@ def get_credentials():
 
 # 구글 시트 클라이언트
 def get_google_sheet_client():
-    creds = get_credentials()
-    if creds:
-        return gspread.authorize(creds)
-    return None
+    try:
+        # Secrets에서 서비스 계정 정보 가져오기
+        secrets = st.secrets["gcp_service_account"]
+        
+        # 👇 [핵심] 권한 범위를 '시트'와 '드라이브' 모두로 넓혀야 오류가 안 납니다!
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        
+        credentials = Credentials.from_service_account_info(secrets, scopes=scopes)
+        client = gspread.authorize(credentials)
+        return client
+    except Exception as e:
+        st.error(f"구글 시트 연결 실패: {e}")
+        return None
 
 # 구글 드라이브 서비스
 def get_drive_service():
@@ -319,3 +331,4 @@ elif app_mode == "📂 오답 복습하기":
                     st.write(parts[1])
             else:
                 st.write(saved_text)
+
