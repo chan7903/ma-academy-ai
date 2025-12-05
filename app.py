@@ -11,19 +11,26 @@ GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
 genai.configure(api_key=GOOGLE_API_KEY)
 
 # ----------------------------------------------------------
-# [설정 2] 페이지 기본 디자인 및 타이틀
+# [설정 2] 페이지 기본 디자인 및 타이틀 (로고 이미지 추가 버전)
 # ----------------------------------------------------------
 st.set_page_config(page_title="MA학원 AI 오답 도우미", page_icon="🏫")
 
-# 로고 및 헤더 디자인
-st.markdown("""
-    <div style='text-align: left;'>
-        <h1 style='margin-bottom: 0;'>🏫 MA학원</h1>
-        <h3 style='margin-top: 0; color: gray;'>AI 오답 도우미</h3>
-    </div>
-    <hr>
-    """, unsafe_allow_html=True)
+# 화면을 1:4 비율로 나눔 (왼쪽: 로고, 오른쪽: 글씨)
+col1, col2 = st.columns([1, 4])
 
+with col1:
+    # ⚠️ 여기에 올리신 파일명(대소문자 구분)을 정확히 적어주세요! 예: logo.png, Logo.jpg
+    st.image("logo.png", use_container_width=True)
+
+with col2:
+    st.markdown("""
+        <div style='text-align: left; padding-top: 10px;'>
+            <h1 style='margin-bottom: 0;'>MA학원</h1>
+            <h3 style='margin-top: 0; color: gray;'>AI 오답 도우미</h3>
+        </div>
+        """, unsafe_allow_html=True)
+
+st.markdown("<hr>", unsafe_allow_html=True)
 # ----------------------------------------------------------
 # [설정 3] 사이드바: 학년, 과목, 말투 설정
 # ----------------------------------------------------------
@@ -173,4 +180,5 @@ with stat_tab1:
         st.write("오답 데이터가 없습니다.")
 
 with stat_tab2:
+
     st.dataframe(df, use_container_width=True)
