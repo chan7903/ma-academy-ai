@@ -10,11 +10,11 @@ import datetime
 import io
 
 # ==========================================================
-# 🛑 [필수 설정] 여기에 아까 구한 '폴더 ID'를 붙여넣으세요!
+# 🛑 [필수 설정] 폴더 ID 및 시트 ID 설정
 # ==========================================================
-DRIVE_FOLDER_ID = "1zl6EoXAitDFUWVYoLBtorSJw-JrOm_fG?hl=ko"
-# 예시: DRIVE_FOLDER_ID = "1A2b3C4d5E6f..." 
-
+# 원장님이 주신 ID에서 뒤에 ?hl=ko 같은 잡동사니는 뺐습니다. (그래야 작동합니다)
+DRIVE_FOLDER_ID = "1zl6EoXAitDFUWVYoLBtorSJw-JrOm_fG"
+SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
 
 # ==========================================================
 # [1] 기본 설정 및 인증
@@ -105,8 +105,8 @@ def load_students_from_sheet():
     
     try:
         client = gspread.authorize(creds)
-# students 시트 불러올 때
-sheet = client.open_by_key("1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ").worksheet("students")
+        # students 시트 불러올 때 (들여쓰기 수정됨)
+        sheet = client.open_by_key(SHEET_ID).worksheet("students")
         return pd.DataFrame(sheet.get_all_records())
     except Exception as e:
         st.error(f"학생 명단 로딩 실패: {e}")
@@ -119,8 +119,8 @@ def save_result_to_sheet(student_name, grade, unit, summary, image_link):
     
     try:
         client = gspread.authorize(creds)
-# results 시트 불러올 때
-sheet = client.open_by_key("1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ").worksheet("results")
+        # results 시트 불러올 때 (들여쓰기 수정됨)
+        sheet = client.open_by_key(SHEET_ID).worksheet("results")
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         # [날짜, 이름, 학년, 단원, 내용, 이미지링크] 순서로 저장
@@ -221,22 +221,24 @@ if img_file:
     if st.button("🚀 분석 및 저장 시작", type="primary"):
         
         # 1. 이미지 업로드 (드라이브)
+        image_link = "저장안함"
         with st.spinner("1/2단계: 구글 드라이브에 사진 저장 중..."):
             image_link = upload_image_to_drive(img_file, st.session_state['user_name'])
             
             if image_link == "업로드_오류" or not image_link:
                 st.error("사진 저장 실패 (폴더 ID 확인 필요)")
                 image_link = "저장실패"
+            else:
+                st.success("사진 저장 완료!")
 
         # 2. AI 분석 (Gemini)
         with st.spinner("2/2단계: 대치동 1타 강사 빙의 중..."):
             try:
-                # ⚠️ 2.5 버전은 아직 없습니다. 1.5 Flash가 최신입니다.
+                # 원장님이 원하시는 모델 (2.5 Flash) 적용
                 model = genai.GenerativeModel('gemini-2.5-flash')
                 
-                # 원장님이 원하시는 고퀄리티 프롬프트 적용 완료!
                 prompt = f"""
-                [Role] 대치동 20년 경력 1타 강사. 
+                [Role] 대치동 20년 경력 1타 강사. 철저하게 분석하세요. 
                 학생 학년: {student_grade}
                 
                 [Output]
@@ -248,12 +250,12 @@ if img_file:
                 """
                 
                 response = model.generate_content([prompt, image])
-                result_text = response.text  # 👈 이게 꼭 있어야 저장이 됩니다!
+                result_text = response.text  
                 
                 st.markdown("### 📝 분석 결과")
                 st.write(result_text)
                 
-                # 단원명 추출 로직 (이게 없으면 시트 저장이 안 됩니다)
+                # 단원명 추출 로직
                 unit_name = "미분류"
                 if "[단원:" in result_text:
                     try:
@@ -271,5 +273,3 @@ if img_file:
                 
             except Exception as e:
                 st.error(f"분석 중 오류 발생: {e}")
-
-
