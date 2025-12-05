@@ -25,8 +25,12 @@ def get_google_sheet_client():
         # Secrets에서 서비스 계정 정보 가져오기
         secrets = st.secrets["gcp_service_account"]
         
-        # 인증 범위 설정
-        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+        # 👇 [핵심] 권한 범위를 '시트'와 '드라이브' 모두로 넓혀야 오류가 안 납니다!
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        
         credentials = Credentials.from_service_account_info(secrets, scopes=scopes)
         client = gspread.authorize(credentials)
         return client
@@ -192,3 +196,4 @@ if img_file:
                 
             except Exception as e:
                 st.error(f"오류 발생: {e}")
+
