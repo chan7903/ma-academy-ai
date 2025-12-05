@@ -3,4 +3,5 @@ google-generativeai>=0.8.3
 pandas
 pillow
 gspread
+google-auth
 google-api-python-client
