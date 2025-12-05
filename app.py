@@ -155,18 +155,20 @@ with tab2:
     up = st.file_uploader("파일 선택", type=['jpg', 'png'])
     if up: img_file = up
 
-# 분석 실행
+# ----------------------------------------------------------
+# [6] AI 분석 실행 (Gemini 2.5 Flash)
+# ----------------------------------------------------------
 if img_file:
-    st.image(img_file, caption="선택된 문제")
-    
-    if st.button("🔍 분석 및 저장 시작", type="primary"):
-        with st.spinner("분석 중... 잠시만 기다려주세요."):
+    image = Image.open(img_file)
+    st.image(image, caption="선택된 문제", use_container_width=True)
+
+    if st.button("🔍 AI 분석 시작", type="primary"):
+        with st.spinner("대치동 1타 강사 AI가 분석 중입니다..."):
             try:
-                # 1. AI 분석 (Gemini 2.5 Flash 사용)
+                # 1. 모델 설정 (2.5 Flash)
                 model = genai.GenerativeModel('gemini-2.5-flash')
-               # ---------------------------------------------------------
-                # [수정된 프롬프트] 대치동 1타 강사 버전
-                # ---------------------------------------------------------
+                
+                # 2. 강력해진 프롬프트 (대치동 강사 페르소나)
                 prompt = f"""
                 [Role Definition]
                 당신은 대한민국 '대치동에서 20년 이상 수능과 내신을 지도한 수학 전문 1타 강사'입니다.
@@ -191,32 +193,33 @@ if img_file:
                    - 마지막에 이 문제와 풀이 논리는 같지만 숫자나 형태가 다른 '변형 문제' 1개를 추가하세요.
                    - 정답도 함께 적어주세요.
                 """
-                """
-                response = model.generate_content([prompt, Image.open(img_file)])
-                result_text = response.text
                 
-                # 2. 결과 출력
+                # 3. AI에게 요청 보내기
+                response = model.generate_content([prompt, image])
+                
+                # 결과 저장
+                st.session_state['analysis_result'] = response.text
+                st.session_state['last_image'] = image
+                
+                # 4. 결과 출력
                 st.markdown("### 📝 분석 결과")
-                st.write(result_text)
+                st.write(response.text)
                 
-                # 3. 단원명 추출 (저장용)
+                # 5. 구글 시트에 자동 저장 로직
                 unit_name = "미분류"
-                if "[단원:" in result_text:
+                if "[단원:" in response.text:
                     try:
-                        unit_name = result_text.split("[단원:")[1].split("]")[0].strip()
+                        unit_name = response.text.split("[단원:")[1].split("]")[0].strip()
                     except: pass
                 
-                # 4. 구글 시트에 자동 저장
+                # 요약 내용은 200자까지만 잘라서 저장
                 save_result_to_sheet(
                     st.session_state['user_name'], 
                     student_grade, 
                     unit_name, 
-                    result_text[:100] + "..." # 내용은 너무 기니까 앞부분만 요약 저장
+                    response.text[:200] + "..." 
                 )
                 
             except Exception as e:
-                st.error(f"오류 발생: {e}")
-
-
-
+                st.error(f"오류가 발생했습니다: {e}")
 
