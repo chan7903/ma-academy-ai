@@ -230,7 +230,7 @@ if img_file:
         with st.spinner("2/2단계: 대치동 1타 강사 빙의 중..."):
             try:
                 # ⚠️ 2.5 버전은 아직 없습니다. 1.5 Flash가 최신입니다.
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                model = genai.GenerativeModel('gemini-2.5-flash')
                 
                 # 원장님이 원하시는 고퀄리티 프롬프트 적용 완료!
                 prompt = f"""
@@ -269,3 +269,4 @@ if img_file:
                 
             except Exception as e:
                 st.error(f"분석 중 오류 발생: {e}")
+
