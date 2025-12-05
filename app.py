@@ -162,10 +162,10 @@ if img_file:
     if st.button("🔍 분석 및 저장 시작", type="primary"):
         with st.spinner("분석 중... 잠시만 기다려주세요."):
             try:
-                # 1. AI 분석 (Gemini 1.5 Flash 사용)
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                # 1. AI 분석 (Gemini 2.5 Flash 사용)
+                model = genai.GenerativeModel('gemini-2.5-flash')
                 prompt = f"""
-                당신은 수학 강사입니다. 학생 학년: {student_grade}
+                당신은 대치동 20년 경력 수학 강사입니다. 학생 학년: {student_grade}
                 말투: {tone}
                 
                 [할 일]
@@ -197,5 +197,6 @@ if img_file:
                 
             except Exception as e:
                 st.error(f"오류 발생: {e}")
+
 
 
