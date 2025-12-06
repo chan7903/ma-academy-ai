@@ -61,7 +61,11 @@ def save_result_to_sheet(student_name, category, sub_category, summary, link):
     if not client: return
     try:
         sheet = client.open_by_key(SHEET_ID).worksheet("results")
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # 🔥 [수정됨] 서버 시간(UTC)에 9시간을 더해 한국 시간(KST)으로 변환
+        kst = datetime.timezone(datetime.timedelta(hours=9))
+        now = datetime.datetime.now(kst).strftime("%Y-%m-%d %H:%M:%S")
+        
         # 저장 컬럼: [날짜, 이름, 대분류(과정), 소분류(과목/학년), 내용, 링크, (공란), 복습횟수]
         sheet.append_row([now, student_name, category, sub_category, summary, link, "", 0])
         st.toast("✅ 오답노트 저장 완료!", icon="💾")
@@ -270,13 +274,13 @@ if menu == "📸 문제 풀기":
     with st.sidebar:
         st.markdown("---")
         
-        # 🔥 [NEW] 1단계: 학교급/교육과정 선택
+        # 🔥 1단계: 학교급/교육과정 선택
         course_category = st.radio(
             "과정 선택", 
             ["고등 (2015 개정)", "고등 (2022 개정)", "중등 수학", "초등 수학"]
         )
         
-        # 🔥 [NEW] 2단계: 세부 과목 또는 학년 선택 (동적 변화)
+        # 🔥 2단계: 세부 과목 또는 학년 선택 (동적 변화)
         sub_selection = ""
         tone = "친절하게" # 기본 톤
         
@@ -321,7 +325,7 @@ if menu == "📸 문제 풀기":
                 try:
                     model = genai.GenerativeModel(MODEL_NAME)
                     
-                    # 🔥 [핵심] 정밀 제약조건 생성
+                    # 🔥 정밀 제약조건 생성
                     constraints = get_detailed_constraints(course_category, sub_selection)
                     
                     prompt = f"""
