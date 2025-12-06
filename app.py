@@ -8,7 +8,7 @@ import datetime
 import io
 import requests
 import base64
-import re # 정규표현식 (코드 추출용)
+import re # 정규표현식 (코드 분리용)
 import matplotlib.pyplot as plt # 그래프 그리기
 import numpy as np # 수학 연산
 
@@ -17,10 +17,7 @@ import numpy as np # 수학 연산
 # ----------------------------------------------------------
 st.set_page_config(page_title="MA학원 AI 오답 도우미", page_icon="🏫", layout="centered")
 
-# 한글 폰트 설정 (스트림릿 클라우드 환경 대응)
-# 리눅스(Debian) 환경이라 나눔고딕 등이 없으면 깨질 수 있습니다. 
-# 깨짐 방지를 위해 영어로 라벨링하거나, 별도 폰트 설치가 필요할 수 있습니다.
-# 일단 기본 설정으로 둡니다.
+# 한글 폰트 설정 (깨짐 방지용 - 영문 표기 우선)
 plt.rcParams['font.family'] = 'sans-serif' 
 plt.rcParams['axes.unicode_minus'] = False
 
@@ -122,32 +119,37 @@ def load_students_from_sheet():
     except: return None
 
 # ----------------------------------------------------------
-# [NEW] 그래프 코드 추출 및 실행 함수
+# [NEW] 텍스트와 코드를 분리하고 실행하는 함수들
 # ----------------------------------------------------------
-def exec_graph_code(response_text):
-    """AI 응답 텍스트에서 파이썬 코드를 찾아 실행하고 그래프를 그립니다."""
-    # 정규표현식으로 ```python ... ``` 사이의 코드 추출
-    match = re.search(r"```python(.*?)```", response_text, re.DOTALL)
+def parse_and_separate_code(text):
+    """
+    AI 응답 텍스트에서 ```python ... ``` 블록을 찾아내어 분리합니다.
+    Returns: (cleaned_text, code_str)
+    """
+    pattern = r"```python(.*?)```"
+    match = re.search(pattern, text, re.DOTALL)
+    
+    code_str = None
+    cleaned_text = text
+    
     if match:
-        code = match.group(1)
-        try:
-            # 안전한 실행을 위해 전역 변수 공간 설정 (plt, np 사용 가능)
-            local_vars = {'plt': plt, 'np': np}
-            
-            # Matplotlib은 스트림릿에서 새로운 피규어를 생성해야 함
-            plt.figure(figsize=(6, 4)) 
-            
-            # 코드 실행
-            exec(code, globals(), local_vars)
-            
-            # 그래프 표시
-            st.pyplot(plt.gcf()) # 현재 그려진(Get Current Figure) 그래프 출력
-            plt.clf() # 다음을 위해 캔버스 초기화
-            return True
-        except Exception as e:
-            st.error(f"그래프 생성 중 오류: {e}")
-            return False
-    return False
+        code_str = match.group(1)
+        # 텍스트에서는 코드 블록을 제거함 (화면에 안 보이게)
+        cleaned_text = re.sub(pattern, "", text, flags=re.DOTALL).strip()
+        
+    return cleaned_text, code_str
+
+def exec_code_direct(code_str):
+    """추출된 파이썬 코드를 실행하여 그래프를 그립니다."""
+    if not code_str: return
+    try:
+        local_vars = {'plt': plt, 'np': np}
+        plt.figure(figsize=(6, 4)) 
+        exec(code_str, globals(), local_vars)
+        st.pyplot(plt.gcf()) 
+        plt.clf() 
+    except Exception as e:
+        st.error(f"그래프 생성 오류: {e}")
 
 # ----------------------------------------------------------
 # [5] 로그인
@@ -224,30 +226,25 @@ if menu == "📸 문제 풀기":
         if st.button("🔍 1타 강사 분석 시작", type="primary"):
             st.session_state['gemini_image'] = Image.open(io.BytesIO(img_bytes))
             
-            # ImgBB 업로드
             link = "이미지_없음"
-            with st.spinner("이미지 링크 생성 중 (ImgBB)..."):
+            with st.spinner("이미지 링크 생성 중..."):
                 uploaded_link = upload_to_imgbb(img_bytes)
-                if uploaded_link:
-                    link = uploaded_link
-                    st.toast("✅ 이미지 업로드 성공!", icon="☁️")
-                else:
-                    st.warning("이미지 업로드 실패")
+                if uploaded_link: link = uploaded_link
 
             with st.spinner(f"AI 선생님({MODEL_NAME})이 분석 중..."):
                 try:
                     model = genai.GenerativeModel(MODEL_NAME)
                     
-                    # 🔥 [수정됨] 프롬프트에 그래프 작성 요청 추가
+                    # 🔥 [강화된 프롬프트]
                     prompt = f"""
                     당신은 대치동 20년 경력 수학 강사입니다. 학년:{student_grade}, 말투:{tone}
                     
                     [지시사항]
                     1. 첫 줄: [단원: 단원명]
                     2. 풀이: 꼼꼼하고 가독성 좋게 작성.
-                    3. **시각화:** 만약 문제가 '함수', '도형', '그래프'와 관련되어 있다면, 
-                       이해를 돕기 위한 **Python Code (Matplotlib)**를 작성해줘.
-                       코드는 반드시 ```python ... ``` 블록 안에 넣어줘.
+                    3. **시각화 필수:** - 문제 상황을 설명하는 그림이나 그래프가 필요하면 **반드시 Python Code (Matplotlib)**로 작성할 것.
+                       - 텍스트로 된 그림(ASCII Art)이나 문자표 도형은 **절대 사용 금지**.
+                       - 코드는 ```python ... ``` 블록 안에 넣을 것.
                     4. 쌍둥이 문제: 1문제 출제. **정답과 해설은 맨 뒤에 ===해설=== 구분선 넣고 작성.**
                     """
                     
@@ -267,46 +264,59 @@ if menu == "📸 문제 풀기":
                 except Exception as e:
                     st.error(f"분석 오류: {e}")
 
-    # 결과 화면
+    # --- [결과 화면 출력 로직 수정됨] ---
     if st.session_state['analysis_result']:
         st.markdown("---")
         full_text = st.session_state['analysis_result']
         parts = full_text.split("===해설===")
         
-        # 1. AI 텍스트 해설
+        # 1. 텍스트와 코드 분리
+        cleaned_text, graph_code = parse_and_separate_code(parts[0])
+        
         with st.container(border=True):
             st.markdown("### 💡 선생님의 분석")
             
-            # 텍스트에서 코드 블록(```python ... ```)은 보기 싫으면 제거해서 보여줄 수도 있지만,
-            # 일단은 그대로 보여줍니다.
-            st.write(parts[0])
-
-            # 🔥 [추가됨] 그래프 코드 있으면 실행해서 보여주기
-            if "```python" in parts[0]:
+            # 🔥 [순서 변경] 그래프가 있으면 먼저 그리기! (코드는 안 보임)
+            if graph_code:
                 st.markdown("#### 📊 AI 자동 생성 그래프")
                 with st.spinner("그래프 그리는 중..."):
-                    exec_graph_code(parts[0])
+                    exec_code_direct(graph_code)
+            
+            # 🔥 그 다음에 텍스트 설명 출력 (코드가 제거된 텍스트)
+            st.write(cleaned_text)
         
-        # 2. 정답 및 쌍둥이 문제 해설
+        # 2. 정답 및 해설
         if len(parts) > 1:
             with st.expander("🔐 정답 및 해설 보기 (클릭)"):
                 st.write(parts[1])
         
-        # 3. 추가 생성 버튼
+        # 3. 쌍둥이 문제 추가 생성
         if st.button("🔄 쌍둥이 문제 추가 생성"):
-            with st.spinner("추가 문제 생성 중..."):
+            with st.spinner("비슷한 문제 만드는 중..."):
                 try:
                     model = genai.GenerativeModel(MODEL_NAME)
-                    extra_prompt = f"쌍둥이 문제 1개 더. 학년:{student_grade}. 정답은 ===해설=== 뒤에."
+                    # 🔥 [쌍둥이 문제 프롬프트도 강화]
+                    extra_prompt = f"""
+                    위 문제와 비슷한 쌍둥이 문제를 1개 더 만들어줘. 
+                    학년:{student_grade}. 정답은 맨 뒤에 ===해설=== 구분선 뒤에 적어.
+                    **중요:** 이 문제에 필요한 그래프나 도형이 있다면, **반드시 Python(Matplotlib) 코드로 작성해서** 그려줘.
+                    텍스트 그림(ASCII)은 절대 쓰지 마.
+                    """
                     res = model.generate_content([extra_prompt, st.session_state['gemini_image']])
                     p = res.text.split("===해설===")
                     
+                    # 추가 문제 내용 분리
+                    extra_text, extra_code = parse_and_separate_code(p[0])
+                    
                     with st.container(border=True):
                         st.markdown("#### ➕ 추가 문제")
-                        st.write(p[0])
-                        # 추가 문제에도 그래프가 있으면 그리기
-                        if "```python" in p[0]:
-                            exec_graph_code(p[0])
+                        
+                        # 🔥 추가 문제도 그래프 먼저!
+                        if extra_code:
+                            st.caption("문제 이해를 돕기 위한 그래프입니다.")
+                            exec_code_direct(extra_code)
+                            
+                        st.write(extra_text)
                     
                     if len(p) > 1:
                         with st.expander("🔐 정답 보기"):
@@ -342,12 +352,15 @@ elif menu == "📒 내 오답 노트":
                             content = row.get('내용', '내용 없음')
                             c_parts = str(content).split("===해설===")
                             
-                            st.write(c_parts[0])
+                            # 저장된 내용에서 코드/텍스트 분리
+                            note_text, note_code = parse_and_separate_code(c_parts[0])
                             
-                            # 🔥 [추가됨] 오답노트 다시 볼 때도 그래프가 있으면 그려주기
-                            if "```python" in c_parts[0]:
-                                if st.button(f"📊 그래프 다시 보기 #{index}"):
-                                    exec_graph_code(c_parts[0])
+                            # 🔥 오답노트에서도 그래프 먼저 보여주고, 코드는 숨김
+                            if note_code:
+                                if st.button(f"📊 그래프 보기 #{index}"):
+                                    exec_code_direct(note_code)
+                            
+                            st.write(note_text)
 
                             if len(c_parts) > 1:
                                 if st.button("정답 보기", key=f"ans_{index}"):
