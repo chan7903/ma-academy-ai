@@ -17,12 +17,14 @@ import numpy as np
 # ----------------------------------------------------------
 st.set_page_config(page_title="MA학원 AI 오답 도우미", page_icon="🏫", layout="centered")
 
-# 그래프 스타일 설정
+# 그래프 한글 폰트 설정 (영어 우선)
 plt.rcParams['font.family'] = 'sans-serif' 
 plt.rcParams['axes.unicode_minus'] = False
 
-MODEL_NAME = "gemini-2.5-flash"
-SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
+MODEL_NAME = "gemini-1.5-flash"
+
+# 🔥 [중요] 여기에 선생님의 진짜 구글 시트 ID를 넣어주세요! 🔥
+SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ" 
 
 try:
     GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
@@ -39,14 +41,14 @@ except:
 def get_sheet_client():
     try:
         secrets = st.secrets["gcp_service_account"]
-        scopes = ["[https://www.googleapis.com/auth/spreadsheets](https://www.googleapis.com/auth/spreadsheets)", "[https://www.googleapis.com/auth/drive](https://www.googleapis.com/auth/drive)"]
+        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         creds = Credentials.from_service_account_info(secrets, scopes=scopes)
         client = gspread.authorize(creds)
         return client
     except: return None
 
 def upload_to_imgbb(image_bytes):
-    url = "[https://api.imgbb.com/1/upload](https://api.imgbb.com/1/upload)"
+    url = "https://api.imgbb.com/1/upload"
     encoded_image = base64.b64encode(image_bytes).decode("utf-8")
     payload = {"key": IMGBB_API_KEY, "image": encoded_image}
     try:
@@ -93,24 +95,30 @@ def load_user_results(user_name):
         return pd.DataFrame(sheet.get_all_records())
     except: return pd.DataFrame()
 
+# 🔥 [수정됨] 에러 원인을 알려주는 진단용 함수
 def load_students_from_sheet():
     client = get_sheet_client()
-    if not client: return None
+    if not client: 
+        st.error("❌ 구글 인증 실패: Secrets 설정을 확인하세요.")
+        return None
     try:
-        sheet = client.open_by_key(SHEET_ID).worksheet("students")
+        sheet_file = client.open_by_key(SHEET_ID)
+        sheet = sheet_file.worksheet("students")
         return pd.DataFrame(sheet.get_all_records())
-    except: return None
+    except Exception as e:
+        # 접속 실패 시 빨간색 에러 메시지를 화면에 띄웁니다.
+        st.error(f"❌ 접속 실패 상세 원인: {e}")
+        return None
 
 # ----------------------------------------------------------
-# [NEW] 스마트 파싱 함수 (강력해진 정규표현식)
+# [NEW] 스마트 파싱 함수 (청소 기능 강화)
 # ----------------------------------------------------------
 def parse_response_smart(text):
-    # 1. 코드 추출: ```python 뿐만 아니라 그냥 ```도 잡아내도록 수정
+    # 1. 코드 추출
     code_pattern = r"```(?:python)?(.*?)```"
     code_match = re.search(code_pattern, text, re.DOTALL)
     code_str = code_match.group(1) if code_match else None
     
-    # 본문에서 코드 제거
     text_no_code = re.sub(code_pattern, "", text, flags=re.DOTALL).strip()
     
     # 2. 개념 추출
@@ -118,7 +126,6 @@ def parse_response_smart(text):
     concept_match = re.search(concept_pattern, text_no_code, re.DOTALL)
     concept_str = concept_match.group(1).strip() if concept_match else None
     
-    # 본문에서 개념 제거
     main_text = re.sub(concept_pattern, "", text_no_code, flags=re.DOTALL).strip()
     
     # 3. 잡다한 헤더 청소
@@ -130,9 +137,7 @@ def parse_response_smart(text):
     for header in garbage_headers:
         main_text = main_text.replace(header, "")
     
-    # 불필요한 공백/번호 정리
     main_text = re.sub(r"^\d+\.\s*$", "", main_text, flags=re.MULTILINE)
-    
     return main_text.strip(), concept_str, code_str
 
 def exec_code_direct(code_str):
@@ -175,7 +180,12 @@ def login_page():
                     st.session_state['user_name'] = user_data.iloc[0]['name']
                     st.rerun()
                 else: st.error("정보 불일치")
-            else: st.error("접속 실패")
+            else: 
+                # 여기서 에러 메시지가 안 떴는데 실패했다면 데이터프레임이 빈 것입니다.
+                if df is None:
+                    st.error("접속 오류 발생 (상세 원인을 확인하세요)")
+                else:
+                    st.error("학생 데이터가 비어있습니다.")
 
 if not st.session_state['is_logged_in']:
     login_page()
@@ -284,7 +294,7 @@ if menu == "📸 문제 풀기":
             # (1) 핵심 개념
             if concept_text:
                 with st.expander("📚 필요한 핵심 개념 & 공식 (클릭)"):
-                    st.markdown(concept_text) # st.info 대신 Markdown 사용 (수식 렌더링 위해)
+                    st.markdown(concept_text)
 
             # (2) 그래프
             if graph_code:
@@ -292,8 +302,8 @@ if menu == "📸 문제 풀기":
                 with st.spinner("그래프 그리는 중..."):
                     exec_code_direct(graph_code)
             
-            # (3) 메인 풀이 (가독성 개선)
-            st.markdown(main_text) # st.write 대신 st.markdown 사용해야 LaTeX가 예쁘게 나옴
+            # (3) 메인 풀이
+            st.markdown(main_text) 
         
         # 2. 정답 및 해설
         if len(parts) > 1:
@@ -323,7 +333,7 @@ if menu == "📸 문제 풀기":
                 except Exception as e:
                     st.error(f"오류: {e}")
 
-# 오답노트 부분 (st.write -> st.markdown으로 변경하여 수식 지원)
+# 오답노트
 elif menu == "📒 내 오답 노트":
     st.markdown("### 📒 내 오답 노트 리스트")
     with st.spinner("데이터 불러오는 중..."):
@@ -349,7 +359,7 @@ elif menu == "📒 내 오답 노트":
                             if n_code: 
                                 if st.button(f"📊 그래프 보기 #{index}"): exec_code_direct(n_code)
                             
-                            st.markdown(n_text) # 여기가 핵심 (Markdown 렌더링)
+                            st.markdown(n_text) 
                             
                             if len(c_parts) > 1:
                                 if st.button("정답 보기", key=f"ans_{index}"): st.info(c_parts[1])
@@ -365,4 +375,3 @@ elif menu == "📒 내 오답 노트":
                         else: st.caption("이미지 없음")
         else: st.info("저장된 오답노트가 없습니다.")
     else: st.warning("데이터 로딩 실패")
-
