@@ -11,13 +11,13 @@ import base64
 import re 
 import matplotlib.pyplot as plt 
 import numpy as np 
-# cv2 (OpenCV)는 삭제했습니다. 더 이상 필요 없습니다.
 
 # ----------------------------------------------------------
 # [1] 기본 설정
 # ----------------------------------------------------------
 st.set_page_config(page_title="MA학원 AI 오답 도우미", page_icon="🏫", layout="centered")
 
+# 그래프 스타일 설정
 plt.rcParams['font.family'] = 'sans-serif' 
 plt.rcParams['axes.unicode_minus'] = False
 
@@ -39,14 +39,14 @@ except:
 def get_sheet_client():
     try:
         secrets = st.secrets["gcp_service_account"]
-        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        scopes = ["[https://www.googleapis.com/auth/spreadsheets](https://www.googleapis.com/auth/spreadsheets)", "[https://www.googleapis.com/auth/drive](https://www.googleapis.com/auth/drive)"]
         creds = Credentials.from_service_account_info(secrets, scopes=scopes)
         client = gspread.authorize(creds)
         return client
     except: return None
 
 def upload_to_imgbb(image_bytes):
-    url = "https://api.imgbb.com/1/upload"
+    url = "[https://api.imgbb.com/1/upload](https://api.imgbb.com/1/upload)"
     encoded_image = base64.b64encode(image_bytes).decode("utf-8")
     payload = {"key": IMGBB_API_KEY, "image": encoded_image}
     try:
@@ -102,25 +102,37 @@ def load_students_from_sheet():
     except: return None
 
 # ----------------------------------------------------------
-# [NEW] 스마트 파싱 함수 (청소 기능)
+# [NEW] 스마트 파싱 함수 (강력해진 정규표현식)
 # ----------------------------------------------------------
 def parse_response_smart(text):
-    code_pattern = r"```python(.*?)```"
+    # 1. 코드 추출: ```python 뿐만 아니라 그냥 ```도 잡아내도록 수정
+    code_pattern = r"```(?:python)?(.*?)```"
     code_match = re.search(code_pattern, text, re.DOTALL)
     code_str = code_match.group(1) if code_match else None
+    
+    # 본문에서 코드 제거
     text_no_code = re.sub(code_pattern, "", text, flags=re.DOTALL).strip()
     
+    # 2. 개념 추출
     concept_pattern = r"<<<핵심>>>(.*?)<<<핵심끝>>>"
     concept_match = re.search(concept_pattern, text_no_code, re.DOTALL)
     concept_str = concept_match.group(1).strip() if concept_match else None
+    
+    # 본문에서 개념 제거
     main_text = re.sub(concept_pattern, "", text_no_code, flags=re.DOTALL).strip()
     
-    garbage_headers = ["핵심 개념 (숨김용):", "시각화 (Python Matplotlib Code):", 
-                       "단계별 풀이 (메인):", "시각화:", "**시각화**", "**단계별 풀이**"]
+    # 3. 잡다한 헤더 청소
+    garbage_headers = [
+        "핵심 개념 (숨김용):", "시각화 (Python Matplotlib Code):", 
+        "단계별 풀이 (메인):", "시각화:", "**시각화**", "**단계별 풀이**",
+        "### 시각화", "### 단계별 풀이"
+    ]
     for header in garbage_headers:
         main_text = main_text.replace(header, "")
     
+    # 불필요한 공백/번호 정리
     main_text = re.sub(r"^\d+\.\s*$", "", main_text, flags=re.MULTILINE)
+    
     return main_text.strip(), concept_str, code_str
 
 def exec_code_direct(code_str):
@@ -182,9 +194,9 @@ if menu == "📸 문제 풀기":
         st.markdown("---")
         student_grade = st.selectbox("학년", ["초4", "초5", "초6", "중1", "중2", "중3", "고1", "고2", "고3"])
         if any(x in student_grade for x in ["초", "중1", "중2"]):
-            tone = "친절하고 상세하게, 핵심은 정확히"
+            tone = "친절하고 상세하게, 학생 눈높이에 맞춰서"
         else:
-            tone = "대치동 1타 강사처럼 엄격하고 논리정연하게"
+            tone = "명료하고 논리적으로, 핵심 위주로"
 
     st.markdown("### 🏫 MA학원 AI 오답 도우미")
 
@@ -199,8 +211,6 @@ if menu == "📸 문제 풀기":
 
     if img_file:
         img_bytes = img_file.getvalue()
-        
-        # [화면 표시] 전처리 없이 원본 그대로 보여줌
         image_for_view = Image.open(io.BytesIO(img_bytes))
         st.image(image_for_view, caption="선택된 문제", width=400)
 
@@ -216,25 +226,31 @@ if menu == "📸 문제 풀기":
                 try:
                     model = genai.GenerativeModel(MODEL_NAME)
                     
-                    # 🔥 [방법 A의 핵심] 프롬프트로 노이즈 제거 명령
+                    # 🔥 [가독성 끝판왕 프롬프트]
                     prompt = f"""
-                    당신은 대치동 20년 경력 수학 강사입니다. 학년:{student_grade}, 말투:{tone}
+                    당신은 대치동 1타 수학 강사입니다. 학년:{student_grade}, 말투:{tone}
                     
-                    [이미지 인식 주의사항 - 매우 중요]
-                    이 이미지에는 학생이 푼 **손글씨(연필/샤프)**와 **빨간색 채점 표시(동그라미, 별표, 밑줄)**가 낙서처럼 포함되어 있습니다.
-                    1. **노이즈 제거:** 빨간색 펜 자국과 연필 낙서는 문제의 일부가 아니므로 **철저히 무시**하십시오.
-                    2. **원본 복원:** 오직 **'검은색으로 인쇄된 문제 텍스트'**와 **'원래의 도형/그래프'**만 보고 분석하십시오.
-                    3. **도형 인식:** 만약 도형 위에 빨간색 선이나 글씨가 겹쳐 있다면, 그것을 투시하여 **가려진 원래 도형의 형태와 수치를 추론**하십시오.
+                    [이미지 인식 지시 - 낙서 무시]
+                    - 이미지의 빨간색 채점 표시나 연필 낙서는 철저히 무시하고, **검은색 인쇄 텍스트와 도형**만 인식하세요.
+                    - 가려진 부분은 수학적 문맥으로 추론하여 복원하세요.
                     
-                    [출력 형식 지시사항]
+                    [출력 형식 및 가독성 지시 - 엄수]
                     1. 첫 줄: [단원: 단원명]
-                    2. **핵심 개념:** <<<핵심>>> 태그와 <<<핵심끝>>> 태그 사이에 작성. (제목 쓰지 말 것)
-                    3. **시각화:** - Python Matplotlib 코드를 ```python ... ``` 안에 작성.
-                       - 기하 문제는 `plt.axis('off')` 필수. 
-                       - 원본은 검은색, 풀이 보조선은 빨간색/파란색 점선.
-                       - 제목 텍스트 쓰지 말 것.
-                    4. **단계별 풀이:** - 제목 없이 바로 Step 1 시작.
-                       - 보조선 설명 시 색상 언급.
+                    
+                    2. **핵심 개념:** <<<핵심>>> 태그와 <<<핵심끝>>> 태그 사이에 작성.
+                    
+                    3. **시각화:**
+                       - 제목 쓰지 말고 오직 Code Block(```python ... ```)만 작성.
+                       - 기하: `plt.axis('off')`, 함수: 축 표시.
+                       - 원본=검은색, 보조선=빨간색 점선.
+                    
+                    4. **단계별 풀이 (가독성 핵심):**
+                       - **줄글 금지:** 긴 문단을 쓰지 마세요. 
+                       - **개조식 사용:** 모든 설명은 글머리 기호(-, •)를 사용하여 짧게 끊어 쓰세요.
+                       - **수식 강조:** 모든 수식, 변수, 숫자는 반드시 LaTeX 형식($...$)을 사용하세요. (예: $x=3$, $\\triangle ABC$)
+                       - **줄바꿈:** 문장이 끝날 때마다 줄을 바꿔서 여백을 주세요.
+                       - **Step 구분:** **Step 1**, **Step 2** 처럼 볼드체로 단계를 명확히 나누세요.
+                    
                     5. 쌍둥이 문제: 1문제 출제. 정답은 맨 뒤에 ===해설=== 구분선 넣고 작성.
                     """
                     
@@ -264,28 +280,35 @@ if menu == "📸 문제 풀기":
         
         with st.container(border=True):
             st.markdown("### 💡 선생님의 분석")
+            
+            # (1) 핵심 개념
             if concept_text:
                 with st.expander("📚 필요한 핵심 개념 & 공식 (클릭)"):
-                    st.info(concept_text)
+                    st.markdown(concept_text) # st.info 대신 Markdown 사용 (수식 렌더링 위해)
+
+            # (2) 그래프
             if graph_code:
                 st.markdown("#### 📊 AI 자동 생성 그래프")
                 with st.spinner("그래프 그리는 중..."):
                     exec_code_direct(graph_code)
-            st.write(main_text)
+            
+            # (3) 메인 풀이 (가독성 개선)
+            st.markdown(main_text) # st.write 대신 st.markdown 사용해야 LaTeX가 예쁘게 나옴
         
+        # 2. 정답 및 해설
         if len(parts) > 1:
             with st.expander("🔐 쌍둥이 문제 정답 및 해설 보기"):
-                st.write(parts[1])
+                st.markdown(parts[1])
         
+        # 3. 추가 생성
         if st.button("🔄 쌍둥이 문제 추가 생성"):
             with st.spinner("비슷한 문제 만드는 중..."):
                 try:
                     model = genai.GenerativeModel(MODEL_NAME)
                     extra_prompt = f"""
                     위 문제와 비슷한 쌍둥이 문제를 1개 더. 학년:{student_grade}. 정답은 ===해설=== 뒤에.
-                    **중요:** - 문제 해결에 필요한 그래프/도형은 반드시 Python(Matplotlib) 코드로 그려줘.
-                    - 도형 문제면 좌표축 지우기 (`plt.axis('off')`).
-                    - 제목 쓰지 말고 코드만 줘.
+                    - 그래프 코드는 오직 코드 블록만 작성 (제목 X).
+                    - 풀이는 개조식으로 짧게 끊어서, 수식은 LaTeX($...$) 사용.
                     """
                     res = model.generate_content([extra_prompt, st.session_state['gemini_image']])
                     p = res.text.split("===해설===")
@@ -293,15 +316,14 @@ if menu == "📸 문제 풀기":
                     with st.container(border=True):
                         st.markdown("#### ➕ 추가 문제")
                         if ex_code: exec_code_direct(ex_code)
-                        st.write(ex_text)
+                        st.markdown(ex_text)
                     if len(p) > 1:
                         with st.expander("🔐 정답 보기"):
-                            st.write(p[1])
+                            st.markdown(p[1])
                 except Exception as e:
                     st.error(f"오류: {e}")
 
-# 오답노트 등 나머지 코드는 동일 (생략)
-# ... (오답노트 부분은 그대로 유지하세요) ...
+# 오답노트 부분 (st.write -> st.markdown으로 변경하여 수식 지원)
 elif menu == "📒 내 오답 노트":
     st.markdown("### 📒 내 오답 노트 리스트")
     with st.spinner("데이터 불러오는 중..."):
@@ -321,11 +343,14 @@ elif menu == "📒 내 오답 노트":
                             content = row.get('내용', '내용 없음')
                             c_parts = str(content).split("===해설===")
                             n_text, n_con, n_code = parse_response_smart(c_parts[0])
+                            
                             if n_con: 
-                                with st.expander("📚 핵심 개념"): st.info(n_con)
+                                with st.expander("📚 핵심 개념"): st.markdown(n_con)
                             if n_code: 
                                 if st.button(f"📊 그래프 보기 #{index}"): exec_code_direct(n_code)
-                            st.write(n_text)
+                            
+                            st.markdown(n_text) # 여기가 핵심 (Markdown 렌더링)
+                            
                             if len(c_parts) > 1:
                                 if st.button("정답 보기", key=f"ans_{index}"): st.info(c_parts[1])
                         if st.button("✅ 오늘 복습 완료!", key=f"rev_{index}"):
