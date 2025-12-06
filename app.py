@@ -8,18 +8,28 @@ import datetime
 import io
 import requests
 import base64
+import re # 정규표현식 (코드 추출용)
+import matplotlib.pyplot as plt # 그래프 그리기
+import numpy as np # 수학 연산
 
 # ----------------------------------------------------------
 # [1] 기본 설정
 # ----------------------------------------------------------
 st.set_page_config(page_title="MA학원 AI 오답 도우미", page_icon="🏫", layout="centered")
 
+# 한글 폰트 설정 (스트림릿 클라우드 환경 대응)
+# 리눅스(Debian) 환경이라 나눔고딕 등이 없으면 깨질 수 있습니다. 
+# 깨짐 방지를 위해 영어로 라벨링하거나, 별도 폰트 설치가 필요할 수 있습니다.
+# 일단 기본 설정으로 둡니다.
+plt.rcParams['font.family'] = 'sans-serif' 
+plt.rcParams['axes.unicode_minus'] = False
+
 MODEL_NAME = "gemini-2.5-flash"
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
 
 try:
     GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
-    IMGBB_API_KEY = st.secrets["IMGBB_API_KEY"] # ImgBB 키 로드
+    IMGBB_API_KEY = st.secrets["IMGBB_API_KEY"]
     genai.configure(api_key=GOOGLE_API_KEY)
 except:
     st.error("설정 오류: Secrets에 키가 없습니다.")
@@ -43,29 +53,22 @@ def get_sheet_client():
         return None
 
 # ----------------------------------------------------------
-# [3] ImgBB 업로드 함수 (변경됨!)
+# [3] ImgBB 업로드 함수
 # ----------------------------------------------------------
 def upload_to_imgbb(image_bytes):
     url = "https://api.imgbb.com/1/upload"
-    
-    # base64 인코딩
     encoded_image = base64.b64encode(image_bytes).decode("utf-8")
-    
     payload = {
         "key": IMGBB_API_KEY,
         "image": encoded_image,
     }
-    
     try:
         response = requests.post(url, data=payload)
         if response.status_code == 200:
-            # 성공 시 이미지의 'url' (직접 링크) 반환
             return response.json()['data']['url']
         else:
-            print(f"ImgBB 업로드 실패: {response.text}")
             return None
     except Exception as e:
-        print(f"에러: {e}")
         return None
 
 # ----------------------------------------------------------
@@ -77,8 +80,6 @@ def save_result_to_sheet(student_name, grade, unit, summary, link):
     try:
         sheet = client.open_by_key(SHEET_ID).worksheet("results")
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        # [날짜, 이름, 학년, 단원, 내용, 링크, (공란), 복습횟수]
         sheet.append_row([now, student_name, grade, unit, summary, link, "", 0])
         st.toast("✅ 오답노트 저장 완료!", icon="💾")
     except Exception as e:
@@ -92,14 +93,12 @@ def increment_review_count(row_date, student_name):
         records = sheet.get_all_records()
         row_idx = -1
         current_count = 0
-        
         for i, record in enumerate(records):
             if str(record.get('날짜')) == str(row_date) and str(record.get('이름')) == str(student_name):
                 row_idx = i + 2
                 current_count = record.get('복습횟수')
                 if current_count == '' or current_count is None: current_count = 0
                 break
-        
         if row_idx != -1:
             sheet.update_cell(row_idx, 8, int(current_count) + 1)
             return True
@@ -121,6 +120,34 @@ def load_students_from_sheet():
         sheet = client.open_by_key(SHEET_ID).worksheet("students")
         return pd.DataFrame(sheet.get_all_records())
     except: return None
+
+# ----------------------------------------------------------
+# [NEW] 그래프 코드 추출 및 실행 함수
+# ----------------------------------------------------------
+def exec_graph_code(response_text):
+    """AI 응답 텍스트에서 파이썬 코드를 찾아 실행하고 그래프를 그립니다."""
+    # 정규표현식으로 ```python ... ``` 사이의 코드 추출
+    match = re.search(r"```python(.*?)```", response_text, re.DOTALL)
+    if match:
+        code = match.group(1)
+        try:
+            # 안전한 실행을 위해 전역 변수 공간 설정 (plt, np 사용 가능)
+            local_vars = {'plt': plt, 'np': np}
+            
+            # Matplotlib은 스트림릿에서 새로운 피규어를 생성해야 함
+            plt.figure(figsize=(6, 4)) 
+            
+            # 코드 실행
+            exec(code, globals(), local_vars)
+            
+            # 그래프 표시
+            st.pyplot(plt.gcf()) # 현재 그려진(Get Current Figure) 그래프 출력
+            plt.clf() # 다음을 위해 캔버스 초기화
+            return True
+        except Exception as e:
+            st.error(f"그래프 생성 중 오류: {e}")
+            return False
+    return False
 
 # ----------------------------------------------------------
 # [5] 로그인
@@ -168,6 +195,7 @@ with st.sidebar:
         st.session_state['analysis_result'] = None
         st.rerun()
 
+# --- [메뉴 1] 문제 풀기 ---
 if menu == "📸 문제 풀기":
     with st.sidebar:
         st.markdown("---")
@@ -210,11 +238,17 @@ if menu == "📸 문제 풀기":
                 try:
                     model = genai.GenerativeModel(MODEL_NAME)
                     
+                    # 🔥 [수정됨] 프롬프트에 그래프 작성 요청 추가
                     prompt = f"""
                     당신은 대치동 20년 경력 수학 강사입니다. 학년:{student_grade}, 말투:{tone}
+                    
+                    [지시사항]
                     1. 첫 줄: [단원: 단원명]
-                    2. 풀이: 꼼꼼하고 가독성 좋게.
-                    3. 쌍둥이 문제: 1문제 출제. **정답은 맨 뒤에 ===해설=== 구분선 넣고 작성.**
+                    2. 풀이: 꼼꼼하고 가독성 좋게 작성.
+                    3. **시각화:** 만약 문제가 '함수', '도형', '그래프'와 관련되어 있다면, 
+                       이해를 돕기 위한 **Python Code (Matplotlib)**를 작성해줘.
+                       코드는 반드시 ```python ... ``` 블록 안에 넣어줘.
+                    4. 쌍둥이 문제: 1문제 출제. **정답과 해설은 맨 뒤에 ===해설=== 구분선 넣고 작성.**
                     """
                     
                     response = model.generate_content([prompt, st.session_state['gemini_image']])
@@ -233,19 +267,32 @@ if menu == "📸 문제 풀기":
                 except Exception as e:
                     st.error(f"분석 오류: {e}")
 
+    # 결과 화면
     if st.session_state['analysis_result']:
         st.markdown("---")
         full_text = st.session_state['analysis_result']
         parts = full_text.split("===해설===")
         
+        # 1. AI 텍스트 해설
         with st.container(border=True):
             st.markdown("### 💡 선생님의 분석")
+            
+            # 텍스트에서 코드 블록(```python ... ```)은 보기 싫으면 제거해서 보여줄 수도 있지만,
+            # 일단은 그대로 보여줍니다.
             st.write(parts[0])
+
+            # 🔥 [추가됨] 그래프 코드 있으면 실행해서 보여주기
+            if "```python" in parts[0]:
+                st.markdown("#### 📊 AI 자동 생성 그래프")
+                with st.spinner("그래프 그리는 중..."):
+                    exec_graph_code(parts[0])
         
+        # 2. 정답 및 쌍둥이 문제 해설
         if len(parts) > 1:
             with st.expander("🔐 정답 및 해설 보기 (클릭)"):
                 st.write(parts[1])
         
+        # 3. 추가 생성 버튼
         if st.button("🔄 쌍둥이 문제 추가 생성"):
             with st.spinner("추가 문제 생성 중..."):
                 try:
@@ -257,6 +304,9 @@ if menu == "📸 문제 풀기":
                     with st.container(border=True):
                         st.markdown("#### ➕ 추가 문제")
                         st.write(p[0])
+                        # 추가 문제에도 그래프가 있으면 그리기
+                        if "```python" in p[0]:
+                            exec_graph_code(p[0])
                     
                     if len(p) > 1:
                         with st.expander("🔐 정답 보기"):
@@ -264,6 +314,7 @@ if menu == "📸 문제 풀기":
                 except Exception as e:
                     st.error(f"오류: {e}")
 
+# --- [메뉴 2] 오답 노트 ---
 elif menu == "📒 내 오답 노트":
     st.markdown("### 📒 내 오답 노트 리스트")
     st.caption("틀린 문제를 다시 보고 '복습 완료' 버튼을 눌러보세요!")
@@ -289,13 +340,19 @@ elif menu == "📒 내 오답 노트":
                     with col1:
                         with st.container(border=True):
                             content = row.get('내용', '내용 없음')
-                            if "===해설===" in str(content):
-                                c_parts = str(content).split("===해설===")
-                                st.write(c_parts[0])
+                            c_parts = str(content).split("===해설===")
+                            
+                            st.write(c_parts[0])
+                            
+                            # 🔥 [추가됨] 오답노트 다시 볼 때도 그래프가 있으면 그려주기
+                            if "```python" in c_parts[0]:
+                                if st.button(f"📊 그래프 다시 보기 #{index}"):
+                                    exec_graph_code(c_parts[0])
+
+                            if len(c_parts) > 1:
                                 if st.button("정답 보기", key=f"ans_{index}"):
                                     st.info(c_parts[1])
-                            else:
-                                st.write(content)
+                                    
                         if st.button("✅ 오늘 복습 완료!", key=f"rev_{index}"):
                             if increment_review_count(row.get('날짜'), row.get('이름')):
                                 st.toast("복습 횟수 증가! 🎉")
