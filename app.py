@@ -56,14 +56,14 @@ def upload_to_imgbb(image_bytes):
         return None
     except: return None
 
-def save_result_to_sheet(student_name, curriculum, subject, summary, link):
+def save_result_to_sheet(student_name, category, sub_category, summary, link):
     client = get_sheet_client()
     if not client: return
     try:
         sheet = client.open_by_key(SHEET_ID).worksheet("results")
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # 저장 컬럼: [날짜, 이름, 교육과정, 과목, 내용, 링크, (공란), 복습횟수]
-        sheet.append_row([now, student_name, curriculum, subject, summary, link, "", 0])
+        # 저장 컬럼: [날짜, 이름, 대분류(과정), 소분류(과목/학년), 내용, 링크, (공란), 복습횟수]
+        sheet.append_row([now, student_name, category, sub_category, summary, link, "", 0])
         st.toast("✅ 오답노트 저장 완료!", icon="💾")
     except Exception as e: st.error(f"저장 실패: {e}")
 
@@ -147,45 +147,82 @@ def exec_code_direct(code_str):
         st.error(f"그래프 생성 오류: {e}")
 
 # ----------------------------------------------------------
-# [NEW] 과목별 상세 제약 조건 (2015 vs 2022 완벽 대응)
+# [NEW] 과정별/학년별 정밀 제약 조건 함수 (핵심!)
 # ----------------------------------------------------------
-def get_subject_constraints(curriculum, subject):
-    base_msg = f"현재 교육과정은 '{curriculum}'이며, 과목은 '{subject}'입니다.\n"
-    
-    # [1] 2015 개정 교육과정 제약
-    if "2015" in curriculum:
-        if "수학 II" in subject:
-            return base_msg + """
-            [⚠️ 수학 II 제약조건 - 절대 엄수]
-            1. '다항함수의 미분과 적분'만 사용 가능합니다.
-            2. **금지:** 음함수/매개변수/합성함수 미분, 지수/로그/삼각함수 미분 절대 금지.
-            3. 로피탈의 정리 사용 금지. 식을 변형하여 극한을 구하는 정석 풀이를 보여주세요.
-            4. 도형 문제 등에서도 변수를 하나로 통일하여 다항함수로 유도하세요.
+def get_detailed_constraints(category, sub_selection):
+    """
+    category: 고등(2015), 고등(2022), 중등, 초등
+    sub_selection: 과목명(고등) 또는 학년(중/초등)
+    """
+    base = f"현재 교육 단계: {category}, 세부 과정: {sub_selection}.\n"
+
+    # [1] 초등 수학
+    if "초등" in category:
+        return base + """
+        [⚠️ 초등 수학 풀이 가이드 - 절대 엄수]
+        1. **변수 사용 금지:** $x, y$ 같은 미지수 대신 '$\square$(네모)', '어떤 수' 또는 '? '를 사용하세요.
+        2. **방정식 금지:** 이항($+3$이 넘어가면 $-3$) 개념 대신, '거꾸로 계산하기'나 '직관적 덧셈/뺄셈'으로 설명하세요.
+        3. **음수 금지:** 학생이 아직 음수(-) 개념을 모를 수 있으므로, 큰 수에서 작은 수를 빼는 형태로 식을 세우세요.
+        4. **말투:** 아주 친절하게, 구체적인 예시(사과, 피자 등)를 들어 설명하세요.
+        """
+
+    # [2] 중등 수학
+    elif "중등" in category:
+        grade = sub_selection # 중1, 중2, 중3
+        if "중1" in grade:
+            return base + """
+            [⚠️ 중1 수학 가이드]
+            1. 문자와 식($x$)은 사용 가능하나, 연립방정식이나 부등식, 함수 용어($f(x)$)는 피하세요.
+            2. 일차방정식 수준에서 해결하고, 기하 문제는 '작도와 합동' 관점에서 설명하세요.
+            3. 음수와 정수 개념은 사용 가능합니다.
             """
-        elif "미적분" in subject:
-            return base_msg + "[미적분(선택) 가이드] 모든 미분법(초월함수, 합성함수 등)을 자유롭게 사용하여 최적의 풀이를 제시하세요."
-        elif "기하" in subject:
-            return base_msg + "[기하 가이드] 해석기하(좌표)보다는 유클리드 기하(닮음, 합동) 성질을 우선적으로 사용하여 풀이하세요."
-    
-    # [2] 2022 개정 교육과정 제약 (용어 변화 대응)
-    elif "2022" in curriculum:
-        if "미적분 I" in subject: # (구 수학 II와 유사)
-            return base_msg + """
-            [⚠️ 2022개정 '미적분 I' 제약조건 - 절대 엄수]
-            1. 이 과목은 구 교육과정의 '수학 II'에 해당합니다. (다항함수의 미적분)
-            2. **금지:** 수열의 극한, 초월함수(지수/로그/삼각) 미적분, 여러 가지 미분법 절대 금지.
-            3. 오직 다항함수의 도함수와 정적분 개념만 사용하세요.
+        elif "중2" in grade:
+            return base + """
+            [⚠️ 중2 수학 가이드]
+            1. 연립방정식, 일차부등식, 일차함수($y=ax+b$)를 사용하여 풀이하세요.
+            2. 기하: 닮음, 피타고라스 정리(일부), 삼각형/사각형의 성질을 활용하세요.
+            3. 제곱근($\sqrt{}$)이나 이차방정식은 사용하지 마세요.
             """
-        elif "미적분 II" in subject: # (구 미적분과 유사)
-            return base_msg + "[2022개정 '미적분 II' 가이드] 모든 심화 미분법과 적분법을 자유롭게 사용하세요."
-        elif "대수" in subject: # (구 수학 I과 유사)
-            return base_msg + "[2022개정 '대수' 가이드] 지수, 로그, 삼각함수, 수열의 기본 개념을 활용하되 미분은 사용하지 마세요."
+        elif "중3" in grade:
+            return base + """
+            [⚠️ 중3 수학 가이드]
+            1. 제곱근($\sqrt{}$), 인수분해, 이차방정식, 이차함수, 삼각비($\sin, \cos$) 사용 가능합니다.
+            2. **금지:** 고등 과정인 미분, 적분, 고차방정식(3차 이상), 나머지 정리 심화 개념은 사용하지 마세요.
+            """
+
+    # [3] 고등 수학 (2015 개정)
+    elif "2015" in category:
+        if "수학 II" in sub_selection:
+            return base + """
+            [⚠️ 고등 수학II(수2) 가이드]
+            1. 다항함수의 미적분만 사용. (지수/로그/삼각함수 미분 금지)
+            2. 로피탈 정리 금지. 정석 극한 풀이 사용.
+            3. 음함수/매개변수 미분 금지.
+            """
+        elif "미적분" in sub_selection:
+            return base + "[고등 미적분 가이드] 모든 미분법과 적분법을 자유롭게 사용하세요."
+        elif "기하" in sub_selection:
+            return base + "[고등 기하 가이드] 벡터, 공간도형 개념 사용 가능."
+        else:
+            return base + "[고등 수학 일반] 고1~고2 수준에 맞게 풀이하세요."
+
+    # [4] 고등 수학 (2022 개정)
+    elif "2022" in category:
+        if "미적분 I" in sub_selection:
+            return base + """
+            [⚠️ 2022개정 미적분I (구 수2) 가이드]
+            1. 다항함수의 미적분만 사용. 초월함수 미분 절대 금지.
+            2. 교육과정 용어인 '미적분 I' 범위 내에서 해결하세요.
+            """
+        elif "대수" in sub_selection:
+            return base + "[2022개정 대수 가이드] 지수/로그/삼각함수의 정의와 성질 활용 (미분 금지)."
+        else:
+            return base + "[2022개정 수학 일반] 해당 과목의 교육과정 범위를 준수하세요."
             
-    # [3] 공통/기타
-    return base_msg + "[일반 가이드] 학생의 학습 수준(초/중/고)에 맞는 용어와 공식을 사용하세요."
+    return base
 
 # ----------------------------------------------------------
-# [5] 로그인 및 메인
+# [5] 로그인 및 메인 로직
 # ----------------------------------------------------------
 if 'is_logged_in' not in st.session_state:
     st.session_state['is_logged_in'] = False
@@ -233,24 +270,28 @@ if menu == "📸 문제 풀기":
     with st.sidebar:
         st.markdown("---")
         
-        # 🔥 [NEW] 교육과정 및 과목 선택 로직
-        curriculum = st.radio("교육과정 선택", ["2015 개정 (현 고2~N수)", "2022 개정 (현 고1 이하)", "초등/중등 (공통)"])
+        # 🔥 [NEW] 1단계: 학교급/교육과정 선택
+        course_category = st.radio(
+            "과정 선택", 
+            ["고등 (2015 개정)", "고등 (2022 개정)", "중등 수학", "초등 수학"]
+        )
         
-        subject_options = []
-        if "2015" in curriculum:
-            subject_options = ["수학 (상/하)", "수학 I", "수학 II (다항함수 미적)", "미적분 (선택/심화)", "확률과 통계", "기하"]
-        elif "2022" in curriculum:
-            subject_options = ["공통수학 1/2", "대수 (구 수1)", "미적분 I (구 수2/다항미적)", "미적분 II (심화)", "확률과 통계", "기하"]
-        else:
-            subject_options = ["초등 수학", "중등 수학 (1~3학년)"]
-            
-        subject = st.selectbox("과목 선택", subject_options)
-
-        # 말투 설정 (학년 대신 교육과정/과목 기반으로 추론)
-        if "초등" in curriculum or "중등" in curriculum:
-            tone = "친절하고 상세하게, 쉬운 용어로"
-        else:
-            tone = "명료하고 논리적으로, 핵심 위주로, 대치동 스타일"
+        # 🔥 [NEW] 2단계: 세부 과목 또는 학년 선택 (동적 변화)
+        sub_selection = ""
+        tone = "친절하게" # 기본 톤
+        
+        if "고등 (2015" in course_category:
+            sub_selection = st.selectbox("과목 선택", ["수학 (상/하)", "수학 I", "수학 II (수2)", "미적분 (선택)", "확률과 통계", "기하"])
+            tone = "대치동 1타 강사처럼 명료하고 핵심 위주로"
+        elif "고등 (2022" in course_category:
+            sub_selection = st.selectbox("과목 선택", ["공통수학 1/2", "대수", "미적분 I (구 수2)", "미적분 II (심화)", "확률과 통계", "기하"])
+            tone = "대치동 1타 강사처럼 명료하고 핵심 위주로"
+        elif "중등" in course_category:
+            sub_selection = st.selectbox("학년 선택", ["중1", "중2", "중3"])
+            tone = "친절하면서도 논리적으로, 개념 원리를 짚어주며"
+        elif "초등" in course_category:
+            sub_selection = st.selectbox("학년 선택", ["초3", "초4", "초5", "초6"])
+            tone = "아주 친절하게, 쉬운 용어와 구어체(~해요) 사용"
 
     st.markdown("### 🏫 MA학원 AI 오답 도우미")
 
@@ -280,17 +321,17 @@ if menu == "📸 문제 풀기":
                 try:
                     model = genai.GenerativeModel(MODEL_NAME)
                     
-                    # 🔥 과목별 제약조건 생성
-                    constraints = get_subject_constraints(curriculum, subject)
+                    # 🔥 [핵심] 정밀 제약조건 생성
+                    constraints = get_detailed_constraints(course_category, sub_selection)
                     
                     prompt = f"""
                     당신은 대치동 1타 수학 강사입니다. 
-                    - 설정: {curriculum}, {subject}
+                    - 과정: {course_category}, 세부: {sub_selection}
                     - 말투: {tone}
                     
                     [이미지 인식 지시 - 낙서 무시]
-                    - 이미지의 빨간색 채점 표시나 연필 낙서는 철저히 무시하고, **검은색 인쇄 텍스트와 도형**만 인식하세요.
-                    - 가려진 부분은 수학적 문맥으로 추론하여 복원하세요.
+                    - 빨간색 채점/연필 낙서 무시. 검은색 인쇄 텍스트/도형만 인식.
+                    - 가려진 부분 문맥 추론 복원.
 
                     {constraints}
                     
@@ -305,10 +346,10 @@ if menu == "📸 문제 풀기":
                        - 원본=검은색, 보조선=빨간색 점선.
                     
                     4. **단계별 풀이 (가독성 핵심):**
-                       - **줄글 금지:** 긴 문단을 쓰지 마세요. 
-                       - **개조식 사용:** 모든 설명은 글머리 기호(-, •)를 사용하여 짧게 끊어 쓰세요.
-                       - **수식 강조:** 모든 수식, 변수, 숫자는 반드시 LaTeX 형식($...$)을 사용하세요.
-                       - **Step 구분:** **Step 1**, **Step 2** 처럼 볼드체로 단계를 명확히 나누세요.
+                       - **줄글 금지.** 개조식(bullet point) 사용.
+                       - **수식 강조:** LaTeX($...$) 형식 필수.
+                       - **Step 구분:** **Step 1**, **Step 2** 볼드체 사용.
+                       - 초등학생일 경우: $x$ 대신 $\square$ 사용, 친절한 구어체.
                     
                     5. 쌍둥이 문제: 1문제 출제. 정답은 맨 뒤에 ===해설=== 구분선 넣고 작성.
                     """
@@ -321,8 +362,9 @@ if menu == "📸 문제 풀기":
                         try: unit_name = response.text.split("[단원:")[1].split("]")[0].strip()
                         except: pass
                     
+                    # 저장 시에도 '과정(고등/중등)'과 '세부(과목/학년)'을 저장
                     save_result_to_sheet(
-                        st.session_state['user_name'], curriculum, unit_name, 
+                        st.session_state['user_name'], course_category, sub_selection, 
                         response.text, link
                     )
                     
@@ -339,34 +381,26 @@ if menu == "📸 문제 풀기":
         
         with st.container(border=True):
             st.markdown("### 💡 선생님의 분석")
-            
-            # (1) 핵심 개념
             if concept_text:
                 with st.expander("📚 필요한 핵심 개념 & 공식 (클릭)"):
                     st.markdown(concept_text)
-
-            # (2) 그래프
             if graph_code:
                 st.markdown("#### 📊 AI 자동 생성 그래프")
                 with st.spinner("그래프 그리는 중..."):
                     exec_code_direct(graph_code)
-            
-            # (3) 메인 풀이
             st.markdown(main_text) 
         
-        # 2. 정답 및 해설
         if len(parts) > 1:
             with st.expander("🔐 쌍둥이 문제 정답 및 해설 보기"):
                 st.markdown(parts[1])
         
-        # 3. 추가 생성
         if st.button("🔄 쌍둥이 문제 추가 생성"):
             with st.spinner("비슷한 문제 만드는 중..."):
                 try:
                     model = genai.GenerativeModel(MODEL_NAME)
                     extra_prompt = f"""
                     위 문제와 비슷한 쌍둥이 문제를 1개 더. 정답은 ===해설=== 뒤에.
-                    - 과정: {curriculum}, 과목: {subject} (제약조건 엄수)
+                    - 과정: {course_category}, 세부: {sub_selection} (제약조건 엄수)
                     - 그래프 코드는 오직 코드 블록만.
                     - 풀이는 개조식, LaTeX($...$) 사용.
                     """
