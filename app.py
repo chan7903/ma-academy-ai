@@ -21,7 +21,7 @@ st.set_page_config(page_title="MA학원 AI 오답 도우미", page_icon="🏫", 
 plt.rcParams['font.family'] = 'sans-serif' 
 plt.rcParams['axes.unicode_minus'] = False
 
-MODEL_NAME = "gemini-1.5-flash"
+MODEL_NAME = "gemini-2.5-flash"
 
 # 🔥 [중요] 여기에 선생님의 진짜 구글 시트 ID를 넣어주세요! 🔥
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ" 
@@ -375,3 +375,4 @@ elif menu == "📒 내 오답 노트":
                         else: st.caption("이미지 없음")
         else: st.info("저장된 오답노트가 없습니다.")
     else: st.warning("데이터 로딩 실패")
+
