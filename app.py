@@ -12,15 +12,12 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import os
 import re
+import time # 시간 지연용
 
 # ----------------------------------------------------------
 # [1] 기본 설정
 # ----------------------------------------------------------
 st.set_page_config(page_title="MA학원 AI 오답 도우미", page_icon="🏫", layout="centered")
-
-# 👇 [핵심] 1순위, 2순위 모델 지정
-PRIMARY_MODEL = "gemini-2.5-flash"  # 일단 이거 먼저 시도
-SECONDARY_MODEL = "gemini-2.0-flash" # 안 되면 이거 사용
 
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
 
@@ -171,28 +168,39 @@ def create_solution_image(original_image, concepts, solution):
         print(f"이미지 생성 실패: {e}")
         return original_image
 
-# 🔥 [핵심 기능] AI 모델 자동 우회 (Fallback) 함수
+# 🔥 [핵심 업그레이드] 3중 우회 (Triple Fallback) 시스템
 def generate_content_with_fallback(prompt, image=None):
-    # 1차 시도: 2.5 Flash
-    try:
-        model = genai.GenerativeModel(PRIMARY_MODEL)
-        if image:
-            response = model.generate_content([prompt, image])
-        else:
-            response = model.generate_content(prompt)
-        return response.text, "🚀 2.5 Flash"
-    except Exception as e:
-        # 2차 시도: 2.0 Flash (2.5가 실패하면 여기로 옴)
-        print(f"1차 모델 실패({e}), 2차 모델로 전환합니다.")
+    # 사용할 모델 리스트 (순서대로 시도)
+    # 1. 2.5 (최신) -> 2. 2.0 (안정) -> 3. 2.0 Lite (비상용, 속도빠름)
+    MODELS_TO_TRY = [
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite-preview-02-05" 
+    ]
+    
+    last_error = None
+    
+    for model_name in MODELS_TO_TRY:
         try:
-            model = genai.GenerativeModel(SECONDARY_MODEL)
+            print(f"모델 시도 중: {model_name}")
+            model = genai.GenerativeModel(model_name)
+            
             if image:
                 response = model.generate_content([prompt, image])
             else:
                 response = model.generate_content(prompt)
-            return response.text, "🛡️ 2.0 Flash (백업)"
-        except Exception as e2:
-            raise e2 # 둘 다 실패하면 에러
+                
+            # 성공하면 바로 리턴
+            return response.text, f"✅ {model_name}"
+            
+        except Exception as e:
+            print(f"{model_name} 실패: {e}")
+            last_error = e
+            time.sleep(1) # 1초 쉬고 다음 모델로
+            continue
+            
+    # 다 실패하면 에러 던짐
+    raise last_error
 
 # ----------------------------------------------------------
 # [3] 로그인
@@ -206,7 +214,7 @@ if 'gemini_image' not in st.session_state:
     st.session_state['gemini_image'] = None
 if 'solution_image' not in st.session_state:
     st.session_state['solution_image'] = None
-if 'used_model' not in st.session_state: # 어떤 모델 썼는지 기록
+if 'used_model' not in st.session_state:
     st.session_state['used_model'] = ""
 
 def login_page():
@@ -294,6 +302,7 @@ if menu == "📸 문제 풀기":
                 st.session_state['gemini_image'] = resized_image
                 
                 try:
+                    # 프롬프트 설정
                     prompt = f"""
                     당신은 대치동 20년 경력 수학 강사입니다. 과목:{selected_subject}, 말투:{tone}
                     
@@ -316,11 +325,11 @@ if menu == "📸 문제 풀기":
                     (LaTeX 사용)
                     """
                     
-                    # 🔥 [수정됨] 자동 우회 함수 사용
+                    # 🔥 [수정] 3중 우회 함수 호출
                     result_text, used_model = generate_content_with_fallback(prompt, st.session_state['gemini_image'])
                     
                     st.session_state['analysis_result'] = result_text
-                    st.session_state['used_model'] = used_model # 어떤 모델 썼는지 기록
+                    st.session_state['used_model'] = used_model
                     
                     # 파싱
                     img_concept = "요약"
@@ -351,15 +360,15 @@ if menu == "📸 문제 풀기":
                     st.rerun()
                     
                 except Exception as e:
-                    st.error(f"분석 오류: {e}")
+                    st.error(f"모든 AI 모델이 응답하지 않습니다. 잠시 후 다시 시도해주세요. ({e})")
 
     # ------------------------------------------------------
     # [7] 분석 결과 출력
     # ------------------------------------------------------
     if st.session_state['analysis_result']:
-        # 어떤 모델이 일했는지 살짝 보여주기
+        # 사용된 모델 표시 (디버깅용)
         if st.session_state['used_model']:
-            st.toast(f"분석 완료! ({st.session_state['used_model']} 사용됨)", icon="🤖")
+            st.toast(f"분석 모델: {st.session_state['used_model']}", icon="🤖")
 
         full_text = st.session_state['analysis_result']
         
@@ -406,8 +415,10 @@ if menu == "📸 문제 풀기":
             with st.spinner("추가 문제 생성 중..."):
                 try:
                     extra_prompt = f"쌍둥이 문제 1개 더. 과목:{selected_subject}. 수식은 반드시 $...$ 사용. 정답은 ===해설=== 뒤에."
-                    # 🔥 추가 생성도 자동 우회 함수 사용
-                    result_text, _ = generate_content_with_fallback(extra_prompt, st.session_state['gemini_image'])
+                    
+                    # 🔥 추가 생성도 3중 우회 적용
+                    result_text, used_model = generate_content_with_fallback(extra_prompt, st.session_state['gemini_image'])
+                    st.toast(f"생성 모델: {used_model}", icon="🤖")
                     
                     p_text = result_text
                     p_prob = ""
