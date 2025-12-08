@@ -18,7 +18,7 @@ import re
 # ----------------------------------------------------------
 st.set_page_config(page_title="MA학원 AI 오답 도우미", page_icon="🏫", layout="centered")
 
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "gemini-2.0-flash"
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
 
 try:
@@ -454,3 +454,4 @@ elif menu == "📒 내 오답 노트":
                             st.rerun()
         else: st.info("오답노트가 없습니다.")
     else: st.warning("데이터 로딩 실패")
+
