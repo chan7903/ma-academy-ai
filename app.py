@@ -8,9 +8,9 @@ import datetime
 import io
 import requests
 import base64
-# 👇 그래프 기능을 위해 추가된 라이브러리
 import matplotlib.pyplot as plt
-import numpy as np
+import matplotlib.font_manager as fm
+from matplotlib import rc
 
 # ----------------------------------------------------------
 # [1] 기본 설정
@@ -41,6 +41,7 @@ def get_sheet_client():
         return client
     except: return None
 
+# 이미지 리사이징
 def resize_image(image, max_width=800):
     w, h = image.size
     if w > max_width:
@@ -106,6 +107,65 @@ def load_students_from_sheet():
         return pd.DataFrame(sheet.get_all_records())
     except: return None
 
+# 🔥 [핵심 기능] 오답노트 이미지 생성 (사진 + 텍스트 합치기)
+def create_solution_image(original_image, concepts, solution):
+    try:
+        # 1. 한글 폰트 설정 (윈도우/맥/리눅스 자동 감지 시도)
+        font_path = "C:/Windows/Fonts/malgun.ttf" # 윈도우 기본
+        font_name = "Malgun Gothic"
+        try:
+            font_prop = fm.FontProperties(fname=font_path)
+            font_name = font_prop.get_name()
+        except:
+            # 윈도우가 아니거나 폰트가 없으면 기본 폰트 시도 (한글 깨질 수 있음 경고)
+            pass
+        
+        plt.rc('font', family=font_name)
+        plt.rcParams['axes.unicode_minus'] = False # 마이너스 기호 깨짐 방지
+
+        # 2. 캔버스(Figure) 생성 (위: 이미지, 아래: 텍스트)
+        # 이미지 비율에 따라 높이 조절
+        w, h = original_image.size
+        fig_width = 10
+        fig_height = fig_width * (h / w) + 6 # 텍스트 공간(6) 확보
+        
+        fig = plt.figure(figsize=(fig_width, fig_height))
+        
+        # 3. 상단: 원본 문제 이미지 그리기
+        ax_img = plt.subplot2grid((10, 1), (0, 0), rowspan=int(fig_width * (h / w)))
+        ax_img.imshow(original_image)
+        ax_img.axis('off') # 축 숨기기
+        
+        # 4. 하단: 텍스트 쓰기
+        # 위치 계산 (이미지 바로 아래부터 시작)
+        text_start_y = 0.05 
+        
+        # 새로운 축 추가 (전체 캔버스 사용)
+        ax_text = fig.add_axes([0.05, 0.01, 0.9, 1 - (int(fig_width * (h / w)) / 10) - 0.05])
+        ax_text.axis('off')
+        
+        # (1) 단원 및 개념 (보라색)
+        ax_text.text(0.0, 0.95, f"[단원 및 핵심 개념]\n{concepts}", 
+                     fontsize=14, color='purple', fontweight='bold', va='top', ha='left', wrap=True)
+        
+        # (2) 풀이 (검은색) - 보라색 글씨 아래에 배치
+        # 대략적인 위치 조정을 위해 줄바꿈 개수로 높이 추정 (단순화)
+        offset = 0.15 + (len(concepts) // 40) * 0.03
+        
+        ax_text.text(0.0, 0.95 - offset, f"[상세 풀이]\n{solution}", 
+                     fontsize=12, color='black', va='top', ha='left', wrap=True)
+
+        # 5. 이미지를 메모리에 저장
+        buf = io.BytesIO()
+        plt.savefig(buf, format='jpg', bbox_inches='tight', pad_inches=0.2)
+        buf.seek(0)
+        plt.close(fig)
+        return Image.open(buf)
+        
+    except Exception as e:
+        print(f"이미지 생성 오류: {e}")
+        return original_image # 실패하면 원본 반환
+
 # ----------------------------------------------------------
 # [3] 로그인
 # ----------------------------------------------------------
@@ -116,6 +176,8 @@ if 'analysis_result' not in st.session_state:
     st.session_state['analysis_result'] = None
 if 'gemini_image' not in st.session_state:
     st.session_state['gemini_image'] = None
+if 'solution_image' not in st.session_state: # 결과 이미지 저장용
+    st.session_state['solution_image'] = None
 
 def login_page():
     st.markdown("<h1 style='text-align: center;'>🔒 MA학원 로그인</h1>", unsafe_allow_html=True)
@@ -150,6 +212,7 @@ with st.sidebar:
     if st.button("로그아웃"):
         st.session_state['is_logged_in'] = False
         st.session_state['analysis_result'] = None
+        st.session_state['solution_image'] = None
         st.rerun()
 
 if menu == "📸 문제 풀기":
@@ -195,133 +258,99 @@ if menu == "📸 문제 풀기":
             st.stop()
 
         if st.button("🔍 1타 강사 분석 시작", type="primary"):
-            with st.spinner("1타 강사가 문제를 분석하고 있습니다... (잠시만 기다려주세요)"):
+            with st.spinner("1타 강사가 문제를 분석하고 필기하는 중... (잠시만 기다려주세요)"):
                 
                 # 1. 이미지 처리
                 resized_image = resize_image(raw_image)
                 st.session_state['gemini_image'] = resized_image
                 
-                img_byte_arr = io.BytesIO()
-                resized_image.save(img_byte_arr, format='JPEG', quality=85)
-                img_bytes = img_byte_arr.getvalue()
-                
-                # 2. ImgBB 업로드
-                link = "이미지_없음"
-                uploaded_link = upload_to_imgbb(img_bytes)
-                if uploaded_link: link = uploaded_link
-
-                # 3. AI 분석 (강력해진 프롬프트)
+                # 2. AI 분석
                 try:
                     model = genai.GenerativeModel(MODEL_NAME)
                     
-                    # 🔥 [핵심] 가독성 극대화 + 그래프 생성 지시 프롬프트
+                    # 🔥 [수정] 이미지를 그리기 위해 텍스트만 깔끔하게 달라고 요청
                     prompt = f"""
                     당신은 대치동 20년 경력 수학 강사입니다. 과목:{selected_subject}, 말투:{tone}
                     
-                    [지시사항 - 가독성 완벽 준수]
-                    1. **모든 수식과 숫자**는 반드시 LaTeX 형식($...$ 또는 $$...$$)을 사용하세요.
-                    2. 계산 과정이 여러 줄일 때는 `\\begin{{aligned}} ... \\end{{aligned}}`를 사용하여 등호(=)를 수직으로 정렬하세요.
-                    3. 문제에서 주어진 핵심 숫자나 조건은 **볼드체**로 강조하세요.
-                    4. 최종 정답은 `\\boxed{{}}`를 사용하여 네모 박스 처리하세요.
-                    5. 줄글 설명을 피하고, 번호 매기기(1., 2.)와 수식 위주로 간결하게 논리만 연결하세요.
-
-                    [지시사항 - 그래프 (필요한 경우만)]
-                    풀이에 그래프가 필수적이라면, Python matplotlib 코드를 작성하여 `===PYTHON_GRAPH===` 구분자 사이에 넣으세요.
-                    - 코드는 `fig, ax = plt.subplots()`로 시작해야 합니다.
-                    - **원래 문제의 그래프**: 검은색('k'), 실선으로 그리세요.
-                    - **풀이 과정에서 추가된 보조선/영역**: 빨간색('r'), 파란색('b') 등 다른 색상과 점선 등을 활용해 구분하세요.
-                    - 범례(legend)를 추가하여 색깔이 무엇을 의미하는지 표시하세요.
-                    
-                    [출력 형식 구분자 (정확히 지킬 것)]
+                    [출력 형식 구분자]
                     ===단원및개념===
-                    (내용...)
+                    (단원명과 핵심 개념만 2~3줄로 요약)
                     ===풀이===
-                    (위 가독성 지시사항을 완벽히 지킨 풀이 작성)
-                    (그래프 코드가 필요하면 여기에 포함: ===PYTHON_GRAPH=== 코드... ===PYTHON_GRAPH===)
+                    (번호 매기기를 사용하여 단계별로 풀이 작성. 수식은 일반 텍스트로 가독성 있게. LaTeX 쓰지 말고 텍스트로 표현. 예: x^2 -> x제곱)
                     ===쌍둥이문제===
-                    (내용...)
+                    (쌍둥이 문제 1개)
                     ===정답및해설===
-                    (내용...)
+                    (쌍둥이 문제 정답 및 해설)
                     """
                     
-                    # 스트리밍 없이 한 번에 받아서 처리 (중복 방지 및 그래프 코드 추출을 위해)
                     response = model.generate_content([prompt, st.session_state['gemini_image']])
                     st.session_state['analysis_result'] = response.text
                     
-                    unit_name = "미분류"
-                    if "===단원및개념===" in response.text:
-                        try: 
-                            section = response.text.split("===단원및개념===")[1].split("===")[0].strip()
-                            unit_name = section.split("\n")[0]
-                        except: pass
+                    # 3. 텍스트 파싱
+                    concepts = "분석 중"
+                    solution = "분석 중"
                     
+                    if "===단원및개념===" in response.text:
+                        temp = response.text.split("===단원및개념===")[1]
+                        concepts = temp.split("===풀이===")[0].strip()
+                        solution = temp.split("===풀이===")[1].split("===쌍둥이문제===")[0].strip()
+                    
+                    # 4. 🔥 [핵심] 오답노트 이미지 생성 (사진 위에 글씨 쓰기)
+                    final_image = create_solution_image(st.session_state['gemini_image'], concepts, solution)
+                    st.session_state['solution_image'] = final_image # 생성된 이미지 저장
+                    
+                    # 5. 생성된 이미지를 ImgBB에 업로드
+                    img_byte_arr = io.BytesIO()
+                    final_image.save(img_byte_arr, format='JPEG', quality=90)
+                    img_bytes = img_byte_arr.getvalue()
+                    
+                    link = "이미지_없음"
+                    uploaded_link = upload_to_imgbb(img_bytes)
+                    if uploaded_link: link = uploaded_link
+                    
+                    # 6. 시트 저장
+                    unit_name = concepts.split("\n")[0][:20] # 단원명만 대략 추출
                     save_result_to_sheet(
                         st.session_state['user_name'], selected_subject, unit_name, 
                         response.text, link
                     )
                     
-                    st.rerun() # 분석 완료 후 새로고침
+                    st.rerun()
                     
                 except Exception as e:
                     st.error(f"분석 오류: {e}")
 
     # ------------------------------------------------------
-    # [7] 분석 결과 출력 (그래프 실행 기능 추가)
+    # [7] 분석 결과 출력
     # ------------------------------------------------------
     if st.session_state['analysis_result']:
         full_text = st.session_state['analysis_result']
         
-        parts = {
-            "concepts": "분석 내용 없음",
-            "solution_text": "분석 내용 없음",
-            "graph_code": None,
-            "twin_prob": "생성 실패",
-            "twin_ans": "생성 실패"
-        }
-        
-        try:
-            # 파싱 로직 (그래프 코드 추출 추가)
-            if "===단원및개념===" in full_text:
-                temp = full_text.split("===단원및개념===")[1]
-                parts["concepts"] = temp.split("===풀이===")[0].strip()
-                
-                sol_section = temp.split("===풀이===")[1].split("===쌍둥이문제===")[0].strip()
-                
-                # 그래프 코드 분리
-                if "===PYTHON_GRAPH===" in sol_section:
-                    sol_parts = sol_section.split("===PYTHON_GRAPH===")
-                    parts["solution_text"] = sol_parts[0].strip() + "\n" + sol_parts[2].strip()
-                    parts["graph_code"] = sol_parts[1].strip()
-                else:
-                    parts["solution_text"] = sol_section
-
-                temp = full_text.split("===쌍둥이문제===")[1]
-                parts["twin_prob"] = temp.split("===정답및해설===")[0].strip()
-                parts["twin_ans"] = temp.split("===정답및해설===")[1].strip()
-        except:
-            parts["solution_text"] = full_text
+        # 파싱
+        parts = {"twin_prob": "", "twin_ans": ""}
+        if "===쌍둥이문제===" in full_text:
+            temp = full_text.split("===쌍둥이문제===")[1]
+            parts["twin_prob"] = temp.split("===정답및해설===")[0].strip()
+            parts["twin_ans"] = temp.split("===정답및해설===")[1].strip()
 
         st.markdown("---")
         
-        with st.expander("📘 단원 및 핵심 개념 확인하기"):
-            st.info(parts["concepts"])
+        # 🔥 [핵심] 텍스트 대신 '생성된 이미지'를 보여줌!
+        if st.session_state['solution_image']:
+            st.markdown("### 📘 오답 분석 결과 (선생님 필기)")
+            st.image(st.session_state['solution_image'], caption="AI 선생님의 첨삭 노트", use_container_width=True)
             
-        with st.container(border=True):
-            st.markdown("### 💡 선생님의 풀이")
-            st.write(parts["solution_text"])
-            
-            # 🔥 [핵심] 파이썬 그래프 실행 및 출력
-            if parts["graph_code"]:
-                try:
-                    with st.spinner("그래프 그리는 중..."):
-                        # 안전한 실행을 위한 네임스페이스
-                        ns = {'plt': plt, 'np': np}
-                        exec(parts["graph_code"], ns) # AI가 짠 코드 실행
-                        if 'fig' in ns:
-                            st.pyplot(ns['fig']) # 그래프 출력
-                except Exception as e:
-                    st.warning(f"그래프 생성 중 오류가 발생했습니다: {e}")
-            
+            # 다운로드 버튼 추가
+            img_byte_arr = io.BytesIO()
+            st.session_state['solution_image'].save(img_byte_arr, format='JPEG')
+            st.download_button(
+                label="📥 오답노트 이미지 다운로드",
+                data=img_byte_arr.getvalue(),
+                file_name=f"오답노트_{st.session_state['user_name']}.jpg",
+                mime="image/jpeg"
+            )
+        
+        # 쌍둥이 문제는 기존처럼 텍스트로
         st.markdown("### 📝 쌍둥이 문제")
         st.write(parts["twin_prob"])
         
@@ -332,25 +361,18 @@ if menu == "📸 문제 풀기":
             with st.spinner("추가 문제 생성 중..."):
                 try:
                     model = genai.GenerativeModel(MODEL_NAME)
-                    extra_prompt = f"""
-                    위 문제와 동일한 단원의 쌍둥이 문제 1개를 더 만드세요.
-                    형식:
-                    ===쌍둥이문제===
-                    (LaTeX 수식 적용된 문제)
-                    ===정답및해설===
-                    (LaTeX 수식 및 \\boxed{{}} 정답 적용된 해설)
-                    """
+                    extra_prompt = f"쌍둥이 문제 1개 더. 과목:{selected_subject}. 정답은 ===해설=== 뒤에."
                     res = model.generate_content([extra_prompt, st.session_state['gemini_image']])
                     
                     p_text = res.text
-                    p_prob = "생성 실패"
-                    p_ans = "생성 실패"
-                    
-                    if "===쌍둥이문제===" in p_text:
-                        temp = p_text.split("===쌍둥이문제===")[1]
-                        p_prob = temp.split("===정답및해설===")[0].strip()
-                        p_ans = temp.split("===정답및해설===")[1].strip()
-                    
+                    p_prob = ""
+                    p_ans = ""
+                    if "===해설===" in p_text:
+                        p_prob = p_text.split("===해설===")[0].strip()
+                        p_ans = p_text.split("===해설===")[1].strip()
+                    else:
+                        p_prob = p_text
+
                     st.markdown("#### ➕ 추가 문제")
                     st.write(p_prob)
                     with st.expander("🔐 정답 보기"):
@@ -377,37 +399,20 @@ elif menu == "📒 내 오답 노트":
                 label = f"📅 {row.get('날짜', '')} | [{row.get('과목', '과목미상')}] | 🔁 복습 {review_cnt}회"
                 
                 with st.expander(label):
-                    col1, col2 = st.columns([2, 1])
-                    with col1:
-                        content = row.get('내용', '내용 없음')
-                        # 오답노트에서는 그래프 코드는 제외하고 텍스트만 보여줌
-                        clean_content = content
-                        if "===PYTHON_GRAPH===" in content:
-                             parts = content.split("===PYTHON_GRAPH===")
-                             clean_content = parts[0] + "\n[그래프는 '문제 풀기' 결과 화면에서만 확인 가능합니다]\n" + parts[2]
+                    # 🔥 오답노트에서도 '이미지(링크)'를 크게 보여줌
+                    img_link = row.get('링크')
+                    if img_link and str(img_link).startswith('http'):
+                        st.image(img_link, caption="첨삭된 오답노트", use_container_width=True)
+                    else:
+                        st.caption("이미지 없음")
+                        # 이미지가 없으면 텍스트로라도 보여줌
+                        st.write(row.get('내용', ''))
 
-                        if "===단원및개념===" in str(clean_content):
-                            try:
-                                c_con = clean_content.split("===단원및개념===")[1].split("===풀이===")[0]
-                                c_sol = clean_content.split("===풀이===")[1].split("===쌍둥이문제===")[0]
-                                st.caption("📘 핵심 개념")
-                                st.write(c_con)
-                                st.markdown("**💡 풀이**")
-                                st.write(c_sol)
-                            except: st.write(clean_content)
-                        else:
-                            st.write(clean_content)
-
-                        if st.button("✅ 복습 완료", key=f"rev_{index}"):
-                            if increment_review_count(row.get('날짜'), row.get('이름')):
-                                st.toast("복습 횟수 증가!")
-                                import time
-                                time.sleep(0.5)
-                                st.rerun()
-                    with col2:
-                        img_link = row.get('링크')
-                        if img_link and str(img_link).startswith('http'):
-                            st.image(img_link, caption="원본 문제", use_container_width=True)
-                        else: st.caption("이미지 없음")
+                    if st.button("✅ 복습 완료", key=f"rev_{index}"):
+                        if increment_review_count(row.get('날짜'), row.get('이름')):
+                            st.toast("복습 횟수 증가!")
+                            import time
+                            time.sleep(0.5)
+                            st.rerun()
         else: st.info("오답노트가 없습니다.")
     else: st.warning("데이터 로딩 실패")
