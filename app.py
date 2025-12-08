@@ -18,11 +18,10 @@ import time
 # ----------------------------------------------------------
 st.set_page_config(page_title="MA학원 AI 오답 도우미", page_icon="🏫", layout="centered")
 
-# 🔥 [4중 우회 전략] Gemma-3 추가!
 MODELS_TO_TRY = [
-    "gemini-2.5-flash",       # 1순위: 최신 성능
-    "gemini-2.0-flash",       # 2순위: 안정성
-    "gemini-2.0-flash-lite-preview-02-05", # 3순위: 속도/무제한급
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite-preview-02-05" 
 ]
 
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
@@ -174,28 +173,22 @@ def create_solution_image(original_image, concepts, solution):
         print(f"이미지 생성 실패: {e}")
         return original_image
 
-# 🔥 [핵심] 4중 우회 (Quadruple Fallback)
 def generate_content_with_fallback(prompt, image=None):
     last_error = None
-    
     for model_name in MODELS_TO_TRY:
         try:
             print(f"모델 시도 중: {model_name}")
             model = genai.GenerativeModel(model_name)
-            
             if image:
                 response = model.generate_content([prompt, image])
             else:
                 response = model.generate_content(prompt)
-                
             return response.text, f"✅ {model_name}"
-            
         except Exception as e:
             print(f"{model_name} 실패: {e}")
             last_error = e
             time.sleep(1)
             continue
-            
     raise last_error
 
 # ----------------------------------------------------------
@@ -250,28 +243,37 @@ with st.sidebar:
         st.rerun()
 
 if menu == "📸 문제 풀기":
-    with st.sidebar:
-        st.markdown("---")
-        subject_options = [
-            "초4 수학", "초5 수학", "초6 수학",
-            "중1 수학", "중2 수학", "중3 수학",
-            "--- 2022 개정 (현 고1) ---",
-            "[22개정] 공통수학1", "[22개정] 공통수학2", "[22개정] 대수", "[22개정] 미적분1", "[22개정] 확통",
-            "--- 2015 개정 (현 고2/3) ---",
-            "[15개정] 수학(상/하)", "[15개정] 수1", "[15개정] 수2", "[15개정] 미적분", "[15개정] 확통", "[15개정] 기하"
-        ]
-        selected_subject = st.selectbox("과목 선택", subject_options)
-        
-        if "---" in selected_subject:
-            st.warning("⚠️ 과목을 선택해주세요.")
-            st.stop()
-
-        if any(x in selected_subject for x in ["초", "중1", "중2"]):
-            tone = "친절하고 상세하게"
-        else:
-            tone = "엄격하고 간결하게, 수식 위주로"
-
     st.markdown("### 🏫 MA학원 AI 오답 도우미")
+    
+    # 🔥 [위치 이동] 과목 선택을 화면 중앙 상단으로 배치!
+    st.markdown("##### 1. 과목을 먼저 선택하세요 (필수!)")
+    
+    subject_options = [
+        "선택안함", # 기본값 추가
+        "초4 수학", "초5 수학", "초6 수학",
+        "중1 수학", "중2 수학", "중3 수학",
+        "--- 2022 개정 (현 고1) ---",
+        "[22개정] 공통수학1", "[22개정] 공통수학2", "[22개정] 대수", "[22개정] 미적분1", "[22개정] 확통",
+        "--- 2015 개정 (현 고2/3) ---",
+        "[15개정] 수학(상/하)", "[15개정] 수1", "[15개정] 수2", "[15개정] 미적분", "[15개정] 확통", "[15개정] 기하"
+    ]
+    
+    # 박스에 색을 입혀서 눈에 띄게 함
+    with st.container(border=True):
+        selected_subject = st.selectbox("현재 공부 중인 과정을 선택해주세요:", subject_options)
+
+    if selected_subject == "선택안함" or "---" in selected_subject:
+        st.info("👆 위에서 과목을 먼저 선택해야 문제 입력을 할 수 있습니다.")
+        st.stop() # 선택 안 하면 아래 실행 안 함
+
+    # 말투 설정
+    if any(x in selected_subject for x in ["초", "중1", "중2"]):
+        tone = "친절하고 상세하게"
+    else:
+        tone = "엄격하고 간결하게, 수식 위주로"
+
+    st.markdown("---")
+    st.markdown("##### 2. 문제 업로드")
 
     tab1, tab2 = st.tabs(["📸 카메라", "📂 갤러리"])
     img_file = None
@@ -298,36 +300,35 @@ if menu == "📸 문제 풀기":
                 st.session_state['gemini_image'] = resized_image
                 
                 try:
-                    # 프롬프트
+                    # 🔥 [수정] 수식 깨짐 방지를 위한 강력한 프롬프트
                     prompt = f"""
                     당신은 대치동 20년 경력 수학 강사입니다. 과목:{selected_subject}, 말투:{tone}
                     
                     [지시사항]
-                    1. 텍스트 수식은 **반드시 LaTeX($) 형식**을 사용하세요.
-                    2. 풀이는 번호를 매겨 단계별로 작성하세요.
+                    1. 텍스트 수식은 **반드시** `$ 수식 $` (인라인) 또는 `$$ 수식 $$` (블록) 형식을 사용하세요.
+                    2. **절대** `\\begin{{align*}}`이나 `\\[ ... \\]` 를 사용하지 마세요. (화면에서 깨집니다.)
+                    3. 여러 줄의 수식은 `$$` 안에서 `\\begin{{aligned}} ... \\end{{aligned}}` 를 사용하세요.
                     
                     [출력 형식 구분자]
                     ===이미지용_개념===
-                    (사진에 적을 개념 2줄 요약. LaTeX 대신 텍스트로)
+                    (사진에 적을 개념. LaTeX 대신 텍스트로 '제곱', '루트' 등으로 표현)
                     ===이미지용_풀이===
-                    (사진에 적을 풀이. 줄글 위주)
+                    (사진에 적을 풀이. 줄글 위주. LaTeX 쓰지 말 것)
                     
                     ===상세풀이_텍스트===
-                    (화면 하단용 상세 풀이. LaTeX 적극 사용)
+                    (화면 하단용 상세 풀이. LaTeX 적극 사용하되 align* 금지)
                     
                     ===쌍둥이문제===
-                    (LaTeX 사용)
+                    (LaTeX 사용. align* 금지)
                     ===정답및해설===
-                    (LaTeX 사용)
+                    (LaTeX 사용. align* 금지)
                     """
                     
-                    # 4중 우회 실행
                     result_text, used_model = generate_content_with_fallback(prompt, st.session_state['gemini_image'])
                     
                     st.session_state['analysis_result'] = result_text
                     st.session_state['used_model'] = used_model
                     
-                    # 파싱
                     img_concept = "요약"
                     img_solution = "풀이"
                     
@@ -358,7 +359,6 @@ if menu == "📸 문제 풀기":
                 except Exception as e:
                     st.error(f"모든 AI 모델이 바쁩니다. 잠시 후 다시 시도해주세요. ({e})")
 
-    # 결과 출력
     if st.session_state['analysis_result']:
         if st.session_state['used_model']:
             st.toast(f"분석 모델: {st.session_state['used_model']}", icon="🤖")
@@ -374,7 +374,6 @@ if menu == "📸 문제 풀기":
         if "===상세풀이_텍스트===" in full_text:
             temp = full_text.split("===상세풀이_텍스트===")[1]
             parts["full_solution"] = temp.split("===쌍둥이문제===")[0].strip()
-            
             temp = temp.split("===쌍둥이문제===")[1]
             parts["twin_prob"] = temp.split("===정답및해설===")[0].strip()
             parts["twin_ans"] = temp.split("===정답및해설===")[1].strip()
@@ -407,9 +406,7 @@ if menu == "📸 문제 풀기":
         if st.button("🔄 쌍둥이 문제 추가 생성"):
             with st.spinner("추가 문제 생성 중..."):
                 try:
-                    extra_prompt = f"쌍둥이 문제 1개 더. 과목:{selected_subject}. 수식은 반드시 $...$ 사용. 정답은 ===해설=== 뒤에."
-                    
-                    # 추가 생성도 4중 우회 적용
+                    extra_prompt = f"쌍둥이 문제 1개 더. 과목:{selected_subject}. 수식은 반드시 $...$ 사용. align* 금지. 정답은 ===해설=== 뒤에."
                     result_text, used_model = generate_content_with_fallback(extra_prompt, st.session_state['gemini_image'])
                     st.toast(f"생성 모델: {used_model}", icon="🤖")
                     
@@ -472,4 +469,3 @@ elif menu == "📒 내 오답 노트":
                             st.rerun()
         else: st.info("오답노트가 없습니다.")
     else: st.warning("데이터 로딩 실패")
-
