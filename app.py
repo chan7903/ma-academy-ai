@@ -11,6 +11,7 @@ import base64
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import os
+import re
 
 # ----------------------------------------------------------
 # [1] 기본 설정
@@ -41,8 +42,9 @@ def get_sheet_client():
         return client
     except: return None
 
+# 폰트 다운로드 함수 (캐시 적용)
 @st.cache_resource
-def get_korean_font_path():
+def get_korean_font_prop():
     font_file = "NanumGothic.ttf"
     if not os.path.exists(font_file):
         url = "https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf"
@@ -51,7 +53,11 @@ def get_korean_font_path():
             with open(font_file, "wb") as f:
                 f.write(r.content)
         except: pass
-    return font_file
+    
+    try:
+        return fm.FontProperties(fname=font_file)
+    except:
+        return None # 폰트 로드 실패 시 None 반환
 
 def resize_image(image, max_width=800):
     w, h = image.size
@@ -118,13 +124,20 @@ def load_students_from_sheet():
         return pd.DataFrame(sheet.get_all_records())
     except: return None
 
-# 🔥 [핵심 기능] 오답노트 이미지 생성 (수식 렌더링 포함)
+# 이미지를 그릴 때 $ 기호를 제거하는 함수 (그림 깨짐 방지용)
+def clean_text_for_plot(text):
+    return text.replace('$', '').replace('\\', '') # 백슬래시도 제거
+
+# 🔥 [수정됨] 이미지 생성 함수 (안전장치 강화)
 def create_solution_image(original_image, concepts, solution):
     try:
-        font_path = get_korean_font_path()
-        font_prop = fm.FontProperties(fname=font_path)
+        # 1. 폰트 가져오기
+        font_prop = get_korean_font_prop()
         
-        # 캔버스 생성
+        # 2. 이미지용 텍스트 정제 (LaTeX 기호 제거)
+        plot_concepts = clean_text_for_plot(concepts)
+        plot_solution = clean_text_for_plot(solution)
+
         w, h = original_image.size
         aspect = h / w
         fig_width = 10
@@ -133,32 +146,32 @@ def create_solution_image(original_image, concepts, solution):
         fig = plt.figure(figsize=(fig_width, fig_height))
         gs = fig.add_gridspec(2, 1, height_ratios=[aspect, 0.8])
         
-        # 1. 이미지 그리기
+        # 이미지
         ax_img = fig.add_subplot(gs[0])
         ax_img.imshow(original_image)
         ax_img.axis('off')
         
-        # 2. 텍스트 그리기
+        # 텍스트
         ax_text = fig.add_subplot(gs[1])
         ax_text.axis('off')
         
-        # [수정] $ 기호를 지우지 않고 그대로 둡니다! (Matplotlib이 해석하도록)
-        
-        # (1) 단원 및 개념 (보라색)
-        ax_text.text(0.02, 0.95, f"[단원 및 핵심 개념]\n{concepts}", 
-                     fontsize=15, color='purple', fontweight='bold', 
-                     va='top', ha='left', wrap=True, fontproperties=font_prop)
-        
-        # 높이 계산 (줄바꿈 고려)
-        line_count = concepts.count('\n') + (len(concepts) // 35) + 3
-        offset = line_count * 0.05 
-        
-        # (2) 풀이 (검은색)
-        ax_text.text(0.02, 0.95 - offset, f"[상세 풀이]\n{solution}", 
-                     fontsize=13, color='black', 
-                     va='top', ha='left', wrap=True, fontproperties=font_prop)
+        # 🔥 폰트 적용 시도 (실패하면 기본 폰트로 그림)
+        try:
+            ax_text.text(0.02, 0.95, f"[단원 및 핵심 개념]\n{plot_concepts}", 
+                         fontsize=15, color='purple', fontweight='bold', 
+                         va='top', ha='left', wrap=True, fontproperties=font_prop)
+            
+            line_count = plot_concepts.count('\n') + (len(plot_concepts) // 35) + 3
+            offset = line_count * 0.05 
+            
+            ax_text.text(0.02, 0.95 - offset, f"[상세 풀이]\n{plot_solution}", 
+                         fontsize=13, color='black', 
+                         va='top', ha='left', wrap=True, fontproperties=font_prop)
+        except:
+            # 폰트 로드 실패시 기본 폰트로 그림 (깨지더라도 나옴)
+            ax_text.text(0.02, 0.95, f"[Concept]\n{plot_concepts}", fontsize=15, color='purple', va='top', ha='left', wrap=True)
+            ax_text.text(0.02, 0.5, f"[Solution]\n{plot_solution}", fontsize=13, color='black', va='top', ha='left', wrap=True)
 
-        # 저장
         buf = io.BytesIO()
         plt.savefig(buf, format='jpg', bbox_inches='tight', pad_inches=0.2)
         buf.seek(0)
@@ -166,7 +179,7 @@ def create_solution_image(original_image, concepts, solution):
         return Image.open(buf)
         
     except Exception as e:
-        print(f"이미지 생성 오류: {e}")
+        print(f"이미지 생성 완전 실패: {e}")
         return original_image
 
 # ----------------------------------------------------------
@@ -261,7 +274,7 @@ if menu == "📸 문제 풀기":
             st.stop()
 
         if st.button("🔍 1타 강사 분석 시작", type="primary"):
-            with st.spinner("1타 강사가 문제를 분석하고 필기하는 중... (잠시만 기다려주세요)"):
+            with st.spinner("1타 강사가 문제를 분석하고 필기하는 중..."):
                 
                 resized_image = resize_image(raw_image)
                 st.session_state['gemini_image'] = resized_image
@@ -269,45 +282,48 @@ if menu == "📸 문제 풀기":
                 try:
                     model = genai.GenerativeModel(MODEL_NAME)
                     
-                    # 🔥 [핵심 수정] 이미지용과 텍스트용 설명을 분리 요청
+                    # 🔥 [프롬프트 수정] 수식 깨짐 방지를 위해 LaTeX 사용법 명확히 지시
                     prompt = f"""
                     당신은 대치동 20년 경력 수학 강사입니다. 과목:{selected_subject}, 말투:{tone}
                     
-                    [출력 형식 구분자 - 정확히 지킬 것]
+                    [필수 지시사항 - 수식 표기법]
+                    1. 텍스트로 보여줄 때는 **무조건 LaTeX 형식**을 사용하세요.
+                       - 인라인 수식: $y=x^2$ (달러 기호 1개)
+                       - 블록 수식: $$ y = x^2 $$ (달러 기호 2개)
+                    2. 절대 `\\[`, `\\]`, `\\(`, `\\)` 같은 괄호형 LaTeX를 쓰지 마세요. 깨집니다.
                     
+                    [출력 형식 구분자]
                     ===이미지용_개념===
-                    (사진 위에 적을 내용입니다. 핵심 개념을 2줄 요약하세요. 수식은 $y=x^2$ 처럼 간단한 LaTeX만 사용하세요.)
-                    
+                    (사진에 적을 내용. 간단한 텍스트 위주. 특수문자 자제)
                     ===이미지용_풀이===
-                    (사진 위에 적을 풀이입니다. 번호를 매겨 핵심만 적으세요. 수식은 $x^2$ 처럼 간단한 LaTeX를 사용하세요. 복잡한 분수나 극한은 피하고 한 줄 수식으로 표현하세요.)
+                    (사진에 적을 풀이. 줄글 위주. x제곱 처럼 한글로 풀어서 작성)
                     
                     ===상세풀이_텍스트===
-                    (여기에는 화면 아래에 보여줄 완벽한 풀이를 적으세요. \\begin{{aligned}} 등 복잡한 LaTeX를 마음껏 사용하세요.)
+                    (여기에는 화면 하단에 보여줄 완벽한 풀이 작성. LaTeX 적극 사용)
                     
                     ===쌍둥이문제===
-                    (쌍둥이 문제 1개. LaTeX 사용)
+                    (LaTeX 사용하여 작성)
                     
                     ===정답및해설===
-                    (정답 및 해설. LaTeX 사용)
+                    (LaTeX 사용하여 작성)
                     """
                     
                     response = model.generate_content([prompt, st.session_state['gemini_image']])
                     st.session_state['analysis_result'] = response.text
                     
                     # 파싱
-                    img_concept = "분석 중"
-                    img_solution = "분석 중"
+                    img_concept = "요약"
+                    img_solution = "풀이"
                     
                     if "===이미지용_개념===" in response.text:
                         parts = response.text.split("===이미지용_개념===")[1]
                         img_concept = parts.split("===이미지용_풀이===")[0].strip()
                         img_solution = parts.split("===이미지용_풀이===")[1].split("===상세풀이_텍스트===")[0].strip()
                     
-                    # 🔥 이미지 생성 (이제 $ 표시가 있어도 지우지 않고 그립니다!)
+                    # 이미지 생성
                     final_image = create_solution_image(st.session_state['gemini_image'], img_concept, img_solution)
                     st.session_state['solution_image'] = final_image 
                     
-                    # ImgBB 업로드
                     img_byte_arr = io.BytesIO()
                     final_image.save(img_byte_arr, format='JPEG', quality=90)
                     img_bytes = img_byte_arr.getvalue()
@@ -349,7 +365,6 @@ if menu == "📸 문제 풀기":
 
         st.markdown("---")
         
-        # 1. 이미지 보여주기 (수식 적용됨!)
         if st.session_state['solution_image']:
             st.markdown("### 📘 오답 분석 결과 (선생님 필기)")
             st.image(st.session_state['solution_image'], caption="AI 선생님의 첨삭 노트", use_container_width=True)
@@ -363,11 +378,10 @@ if menu == "📸 문제 풀기":
                 mime="image/jpeg"
             )
             
-        # 2. 하단 텍스트 (완벽한 상세 풀이)
-        with st.expander("📜 상세 풀이 텍스트로 보기 (복잡한 수식 포함)"):
-            st.markdown(parts["full_solution"])
+        with st.expander("📜 상세 풀이 텍스트로 보기 (수식 포함)", expanded=True):
+            st.write(parts["full_solution"])
 
-        # 3. 쌍둥이 문제
+        st.markdown("---")
         st.markdown("### 📝 쌍둥이 문제")
         st.write(parts["twin_prob"])
         
@@ -378,7 +392,7 @@ if menu == "📸 문제 풀기":
             with st.spinner("추가 문제 생성 중..."):
                 try:
                     model = genai.GenerativeModel(MODEL_NAME)
-                    extra_prompt = f"쌍둥이 문제 1개 더. 과목:{selected_subject}. 수식은 반드시 LaTeX($) 사용. 정답은 ===해설=== 뒤에."
+                    extra_prompt = f"쌍둥이 문제 1개 더. 과목:{selected_subject}. 수식은 반드시 $...$ 사용. 정답은 ===해설=== 뒤에."
                     res = model.generate_content([extra_prompt, st.session_state['gemini_image']])
                     
                     p_text = res.text
