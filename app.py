@@ -10,7 +10,7 @@ import requests
 import base64
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
-from matplotlib import rc
+import os
 
 # ----------------------------------------------------------
 # [1] 기본 설정
@@ -41,7 +41,21 @@ def get_sheet_client():
         return client
     except: return None
 
-# 이미지 리사이징
+# 🔥 [핵심] 한글 폰트가 없으면 자동으로 다운로드하는 함수
+@st.cache_resource
+def get_korean_font_path():
+    font_file = "NanumGothic.ttf"
+    # 파일이 없으면 다운로드 (Google Fonts)
+    if not os.path.exists(font_file):
+        url = "https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf"
+        try:
+            r = requests.get(url)
+            with open(font_file, "wb") as f:
+                f.write(r.content)
+        except:
+            pass
+    return font_file
+
 def resize_image(image, max_width=800):
     w, h = image.size
     if w > max_width:
@@ -107,55 +121,49 @@ def load_students_from_sheet():
         return pd.DataFrame(sheet.get_all_records())
     except: return None
 
-# 🔥 [핵심 기능] 오답노트 이미지 생성 (사진 + 텍스트 합치기)
+# 🔥 [핵심 기능] 오답노트 이미지 생성 (폰트 적용 버전)
 def create_solution_image(original_image, concepts, solution):
     try:
-        # 1. 한글 폰트 설정 (윈도우/맥/리눅스 자동 감지 시도)
-        font_path = "C:/Windows/Fonts/malgun.ttf" # 윈도우 기본
-        font_name = "Malgun Gothic"
-        try:
-            font_prop = fm.FontProperties(fname=font_path)
-            font_name = font_prop.get_name()
-        except:
-            # 윈도우가 아니거나 폰트가 없으면 기본 폰트 시도 (한글 깨질 수 있음 경고)
-            pass
+        # 1. 폰트 로드 (자동 다운로드된 폰트 사용)
+        font_path = get_korean_font_path()
+        font_prop = fm.FontProperties(fname=font_path)
         
-        plt.rc('font', family=font_name)
-        plt.rcParams['axes.unicode_minus'] = False # 마이너스 기호 깨짐 방지
-
-        # 2. 캔버스(Figure) 생성 (위: 이미지, 아래: 텍스트)
-        # 이미지 비율에 따라 높이 조절
+        # 2. 캔버스 생성
         w, h = original_image.size
+        # 이미지 비율에 맞춰 캔버스 크기 설정 (너무 크면 줄임)
+        aspect = h / w
         fig_width = 10
-        fig_height = fig_width * (h / w) + 6 # 텍스트 공간(6) 확보
+        fig_height = fig_width * aspect + 8 # 텍스트 공간 넉넉히 확보
         
         fig = plt.figure(figsize=(fig_width, fig_height))
         
-        # 3. 상단: 원본 문제 이미지 그리기
-        ax_img = plt.subplot2grid((10, 1), (0, 0), rowspan=int(fig_width * (h / w)))
+        # 3. 이미지 배치
+        # GridSpec을 사용하여 상단에 이미지, 하단에 텍스트 배치
+        gs = fig.add_gridspec(2, 1, height_ratios=[aspect, 0.8]) # 비율 조정
+        
+        ax_img = fig.add_subplot(gs[0])
         ax_img.imshow(original_image)
-        ax_img.axis('off') # 축 숨기기
+        ax_img.axis('off')
         
-        # 4. 하단: 텍스트 쓰기
-        # 위치 계산 (이미지 바로 아래부터 시작)
-        text_start_y = 0.05 
-        
-        # 새로운 축 추가 (전체 캔버스 사용)
-        ax_text = fig.add_axes([0.05, 0.01, 0.9, 1 - (int(fig_width * (h / w)) / 10) - 0.05])
+        # 4. 텍스트 배치
+        ax_text = fig.add_subplot(gs[1])
         ax_text.axis('off')
         
         # (1) 단원 및 개념 (보라색)
-        ax_text.text(0.0, 0.95, f"[단원 및 핵심 개념]\n{concepts}", 
-                     fontsize=14, color='purple', fontweight='bold', va='top', ha='left', wrap=True)
+        ax_text.text(0.02, 0.95, f"[단원 및 핵심 개념]\n{concepts}", 
+                     fontsize=15, color='purple', fontweight='bold', 
+                     va='top', ha='left', wrap=True, fontproperties=font_prop)
         
-        # (2) 풀이 (검은색) - 보라색 글씨 아래에 배치
-        # 대략적인 위치 조정을 위해 줄바꿈 개수로 높이 추정 (단순화)
-        offset = 0.15 + (len(concepts) // 40) * 0.03
+        # 줄바꿈 개수로 대략적인 높이 계산하여 풀이 위치 잡기
+        line_count = concepts.count('\n') + (len(concepts) // 40) + 2
+        offset = line_count * 0.06 
         
-        ax_text.text(0.0, 0.95 - offset, f"[상세 풀이]\n{solution}", 
-                     fontsize=12, color='black', va='top', ha='left', wrap=True)
+        # (2) 풀이 (검은색)
+        ax_text.text(0.02, 0.95 - offset, f"[상세 풀이]\n{solution}", 
+                     fontsize=13, color='black', 
+                     va='top', ha='left', wrap=True, fontproperties=font_prop)
 
-        # 5. 이미지를 메모리에 저장
+        # 5. 저장
         buf = io.BytesIO()
         plt.savefig(buf, format='jpg', bbox_inches='tight', pad_inches=0.2)
         buf.seek(0)
@@ -164,7 +172,7 @@ def create_solution_image(original_image, concepts, solution):
         
     except Exception as e:
         print(f"이미지 생성 오류: {e}")
-        return original_image # 실패하면 원본 반환
+        return original_image
 
 # ----------------------------------------------------------
 # [3] 로그인
@@ -176,7 +184,7 @@ if 'analysis_result' not in st.session_state:
     st.session_state['analysis_result'] = None
 if 'gemini_image' not in st.session_state:
     st.session_state['gemini_image'] = None
-if 'solution_image' not in st.session_state: # 결과 이미지 저장용
+if 'solution_image' not in st.session_state:
     st.session_state['solution_image'] = None
 
 def login_page():
@@ -264,11 +272,10 @@ if menu == "📸 문제 풀기":
                 resized_image = resize_image(raw_image)
                 st.session_state['gemini_image'] = resized_image
                 
-                # 2. AI 분석
                 try:
                     model = genai.GenerativeModel(MODEL_NAME)
                     
-                    # 🔥 [수정] 이미지를 그리기 위해 텍스트만 깔끔하게 달라고 요청
+                    # 🔥 이미지를 그리기 위해 텍스트만 요청 (LaTeX 제외)
                     prompt = f"""
                     당신은 대치동 20년 경력 수학 강사입니다. 과목:{selected_subject}, 말투:{tone}
                     
@@ -276,7 +283,7 @@ if menu == "📸 문제 풀기":
                     ===단원및개념===
                     (단원명과 핵심 개념만 2~3줄로 요약)
                     ===풀이===
-                    (번호 매기기를 사용하여 단계별로 풀이 작성. 수식은 일반 텍스트로 가독성 있게. LaTeX 쓰지 말고 텍스트로 표현. 예: x^2 -> x제곱)
+                    (번호 매기기를 사용하여 단계별로 풀이 작성. 수식은 Python이 그릴 수 있도록 일반 텍스트로 가독성 있게. LaTeX($) 절대 쓰지 말고 x^2, sqrt(x) 처럼 표현하세요.)
                     ===쌍둥이문제===
                     (쌍둥이 문제 1개)
                     ===정답및해설===
@@ -286,7 +293,7 @@ if menu == "📸 문제 풀기":
                     response = model.generate_content([prompt, st.session_state['gemini_image']])
                     st.session_state['analysis_result'] = response.text
                     
-                    # 3. 텍스트 파싱
+                    # 텍스트 파싱
                     concepts = "분석 중"
                     solution = "분석 중"
                     
@@ -295,11 +302,11 @@ if menu == "📸 문제 풀기":
                         concepts = temp.split("===풀이===")[0].strip()
                         solution = temp.split("===풀이===")[1].split("===쌍둥이문제===")[0].strip()
                     
-                    # 4. 🔥 [핵심] 오답노트 이미지 생성 (사진 위에 글씨 쓰기)
+                    # 🔥 오답노트 이미지 생성 (폰트 적용됨!)
                     final_image = create_solution_image(st.session_state['gemini_image'], concepts, solution)
-                    st.session_state['solution_image'] = final_image # 생성된 이미지 저장
+                    st.session_state['solution_image'] = final_image 
                     
-                    # 5. 생성된 이미지를 ImgBB에 업로드
+                    # ImgBB 업로드
                     img_byte_arr = io.BytesIO()
                     final_image.save(img_byte_arr, format='JPEG', quality=90)
                     img_bytes = img_byte_arr.getvalue()
@@ -308,8 +315,8 @@ if menu == "📸 문제 풀기":
                     uploaded_link = upload_to_imgbb(img_bytes)
                     if uploaded_link: link = uploaded_link
                     
-                    # 6. 시트 저장
-                    unit_name = concepts.split("\n")[0][:20] # 단원명만 대략 추출
+                    # 시트 저장
+                    unit_name = concepts.split("\n")[0][:20]
                     save_result_to_sheet(
                         st.session_state['user_name'], selected_subject, unit_name, 
                         response.text, link
@@ -320,13 +327,10 @@ if menu == "📸 문제 풀기":
                 except Exception as e:
                     st.error(f"분석 오류: {e}")
 
-    # ------------------------------------------------------
-    # [7] 분석 결과 출력
-    # ------------------------------------------------------
+    # 결과 출력
     if st.session_state['analysis_result']:
         full_text = st.session_state['analysis_result']
         
-        # 파싱
         parts = {"twin_prob": "", "twin_ans": ""}
         if "===쌍둥이문제===" in full_text:
             temp = full_text.split("===쌍둥이문제===")[1]
@@ -335,12 +339,10 @@ if menu == "📸 문제 풀기":
 
         st.markdown("---")
         
-        # 🔥 [핵심] 텍스트 대신 '생성된 이미지'를 보여줌!
         if st.session_state['solution_image']:
             st.markdown("### 📘 오답 분석 결과 (선생님 필기)")
             st.image(st.session_state['solution_image'], caption="AI 선생님의 첨삭 노트", use_container_width=True)
             
-            # 다운로드 버튼 추가
             img_byte_arr = io.BytesIO()
             st.session_state['solution_image'].save(img_byte_arr, format='JPEG')
             st.download_button(
@@ -350,7 +352,6 @@ if menu == "📸 문제 풀기":
                 mime="image/jpeg"
             )
         
-        # 쌍둥이 문제는 기존처럼 텍스트로
         st.markdown("### 📝 쌍둥이 문제")
         st.write(parts["twin_prob"])
         
@@ -399,13 +400,11 @@ elif menu == "📒 내 오답 노트":
                 label = f"📅 {row.get('날짜', '')} | [{row.get('과목', '과목미상')}] | 🔁 복습 {review_cnt}회"
                 
                 with st.expander(label):
-                    # 🔥 오답노트에서도 '이미지(링크)'를 크게 보여줌
                     img_link = row.get('링크')
                     if img_link and str(img_link).startswith('http'):
                         st.image(img_link, caption="첨삭된 오답노트", use_container_width=True)
                     else:
                         st.caption("이미지 없음")
-                        # 이미지가 없으면 텍스트로라도 보여줌
                         st.write(row.get('내용', ''))
 
                     if st.button("✅ 복습 완료", key=f"rev_{index}"):
