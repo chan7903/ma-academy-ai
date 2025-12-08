@@ -38,8 +38,8 @@ def get_sheet_client():
         return client
     except: return None
 
-# 이미지 리사이징 (캐싱 적용으로 속도 향상 시도)
-def resize_image(image, max_width=800): # 1024 -> 800으로 더 줄여서 속도 확보
+# 이미지 리사이징 (안전장치 추가됨)
+def resize_image(image, max_width=800):
     w, h = image.size
     if w > max_width:
         ratio = max_width / float(w)
@@ -52,7 +52,7 @@ def upload_to_imgbb(image_bytes):
     encoded_image = base64.b64encode(image_bytes).decode("utf-8")
     payload = {"key": IMGBB_API_KEY, "image": encoded_image}
     try:
-        response = requests.post(url, data=payload, timeout=10) # 10초 타임아웃 설정
+        response = requests.post(url, data=payload, timeout=15)
         if response.status_code == 200:
             return response.json()['data']['url']
         return None
@@ -164,39 +164,41 @@ if menu == "📸 문제 풀기":
         cam = st.camera_input("촬영")
         if cam: img_file = cam
     with tab2:
-        up = st.file_uploader("파일 선택", type=['jpg', 'png'])
+        up = st.file_uploader("파일 선택", type=['jpg', 'png', 'jpeg'])
         if up: img_file = up
 
     if img_file:
-        # 👇 [여기가 중요!] 파일을 선택하자마자 로딩 표시를 띄웁니다.
-        with st.spinner("이미지 최적화 중... (잠시만 기다려주세요)"):
-            try:
-                # 이미지 열기 및 리사이징
-                raw_image = Image.open(img_file)
-                resized_image = resize_image(raw_image) 
-                
-                # 리사이징된 이미지를 다시 바이트로 변환
-                img_byte_arr = io.BytesIO()
-                resized_image.save(img_byte_arr, format=raw_image.format if raw_image.format else 'JPEG')
-                img_bytes = img_byte_arr.getvalue()
-                
-                # 화면 표시
-                st.image(resized_image, caption="선택된 문제", width=400)
-                
-            except Exception as e:
-                st.error("이미지를 처리하는 중 오류가 발생했습니다. (지원되지 않는 파일 형식일 수 있습니다)")
-                st.stop()
+        # 👇 [수정됨] 이미지 처리 과정을 훨씬 안전하게 바꿨습니다.
+        try:
+            raw_image = Image.open(img_file)
+            
+            # 1. RGBA(투명배경)나 P 모드라면 무조건 RGB로 변환 (이게 핵심!)
+            if raw_image.mode in ("RGBA", "P"):
+                raw_image = raw_image.convert("RGB")
+            
+            # 2. 리사이징
+            resized_image = resize_image(raw_image)
+            
+            # 3. 바이트 변환 (무조건 JPEG로 통일)
+            img_byte_arr = io.BytesIO()
+            resized_image.save(img_byte_arr, format='JPEG', quality=85)
+            img_bytes = img_byte_arr.getvalue()
+            
+            # 화면 표시
+            st.image(resized_image, caption="선택된 문제", width=400)
+            
+        except Exception as e:
+            st.error(f"이미지 처리 중 오류가 발생했습니다: {e}")
+            st.stop()
 
         if st.button("🔍 1타 강사 분석 시작", type="primary"):
             st.session_state['gemini_image'] = resized_image
             
-            # ImgBB 업로드
             link = "이미지_없음"
-            with st.spinner("서버 연결 중..."):
+            with st.spinner("이미지 서버 전송 중..."):
                 uploaded_link = upload_to_imgbb(img_bytes)
                 if uploaded_link: link = uploaded_link
 
-            # AI 분석 (스트리밍)
             st.markdown("---")
             result_container = st.empty()
             full_response = ""
@@ -206,7 +208,7 @@ if menu == "📸 문제 풀기":
                 prompt = f"""
                 대치동 20년 경력 수학 강사. 학년:{student_grade}, 말투:{tone}
                 1. [단원: 단원명]
-                2. 꼼꼼한 풀이 (가독성 좋게).
+                2. 꼼꼼한 풀이.
                 3. 쌍둥이 문제 1개. **정답은 맨 뒤에 ===해설=== 구분선 넣고 작성.**
                 """
                 
@@ -231,12 +233,10 @@ if menu == "📸 문제 풀기":
             except Exception as e:
                 st.error(f"분석 오류: {e}")
 
-    # 결과 표시 및 추가 생성
     if st.session_state['analysis_result']:
         full_text = st.session_state['analysis_result']
         parts = full_text.split("===해설===")
         
-        # 다시 깔끔하게 그리기 (스트리밍 완료 후)
         with st.container(border=True):
             st.markdown("### 💡 선생님의 분석")
             st.write(parts[0])
