@@ -134,15 +134,16 @@ def load_students_from_sheet():
         return pd.DataFrame(sheet.get_all_records())
     except: return None
 
-# 🔥 [수정] 수식 기호($)를 지우지 않고 그대로 반환하도록 변경!
+# 🔥 [중요] 수식 기호($)를 지우지 않고 그대로 반환 (지난번 수정 유지)
 def clean_text_for_plot(text):
     return text 
 
 def create_solution_image(original_image, concepts, solution):
     try:
         font_prop = get_korean_font_prop()
-        plot_concepts = clean_text_for_plot(concepts)
-        plot_solution = clean_text_for_plot(solution)
+        # 여기서는 clean_text_for_plot이 아무것도 안 하므로 그대로 전달됨
+        plot_concepts = concepts 
+        plot_solution = solution
 
         w, h = original_image.size
         aspect = h / w
@@ -171,7 +172,7 @@ def create_solution_image(original_image, concepts, solution):
                          fontsize=13, color='black', 
                          va='top', ha='left', wrap=True, fontproperties=font_prop)
         except:
-            # 폰트 로드 실패 시에도 출력
+            # 폰트 로드 실패 시 예비 출력
             ax_text.text(0.02, 0.95, f"[Concept]\n{plot_concepts}", fontsize=15, color='purple', va='top', ha='left', wrap=True)
             ax_text.text(0.02, 0.5, f"[Solution]\n{plot_solution}", fontsize=13, color='black', va='top', ha='left', wrap=True)
 
@@ -316,19 +317,19 @@ if menu == "📸 문제 풀기":
                 st.session_state['gemini_image'] = resized_image
                 
                 try:
-                    # 🔥 [수정] 이미지용 풀이에도 LaTeX를 사용하도록 지시
+                    # 🔥 [핵심 수정] 프롬프트에 "무조건", "반드시"를 추가하여 AI에게 강력하게 지시
                     prompt = f"""
                     당신은 대치동 20년 경력 수학 강사입니다. 과목:{selected_subject}, 말투:{tone}
                     
                     [지시사항]
-                    1. 텍스트 수식은 **반드시 LaTeX($) 형식**을 사용하세요.
+                    1. 텍스트 수식은 **반드시** LaTeX($) 형식을 사용하세요.
                     2. 풀이는 번호를 매겨 단계별로 작성하세요.
                     
                     [출력 형식 구분자]
                     ===이미지용_개념===
-                    (사진에 적을 개념 2줄 요약. LaTeX 사용하여 $x^2$ 처럼 표현)
+                    (사진에 적을 개념 2줄 요약. **반드시** LaTeX 사용하여 $x^2$, $\sqrt{{2}}$ 처럼 표현할 것)
                     ===이미지용_풀이===
-                    (사진에 적을 풀이. 줄글 위주. LaTeX 사용하여 수식 표현. 예: $y=2x$ 대입)
+                    (사진에 적을 풀이. 한글 설명과 함께 수식이 나올 때는 **무조건** `$ 수식 $` 형태로 작성하세요. 예: "주어진 식 $x^2+2x$에 $x=1$을 대입하면...")
                     
                     ===상세풀이_텍스트===
                     (화면 하단용 상세 풀이. LaTeX 적극 사용)
@@ -422,9 +423,9 @@ if menu == "📸 문제 풀기":
         if st.button("🔄 쌍둥이 문제 추가 생성"):
             with st.spinner("추가 문제 생성 중..."):
                 try:
-                    extra_prompt = f"쌍둥이 문제 1개 더. 과목:{selected_subject}. 수식은 반드시 $...$ 사용. 정답은 ===해설=== 뒤에."
+                    # 🔥 추가 생성 프롬프트도 강화
+                    extra_prompt = f"쌍둥이 문제 1개 더. 과목:{selected_subject}. 수식은 반드시 LaTeX($) 사용. 정답은 ===해설=== 뒤에."
                     
-                    # 🔥 추가 생성도 로테이션 적용
                     result_text, used_model = generate_content_with_rotation(extra_prompt, st.session_state['gemini_image'])
                     st.toast(f"생성 모델: {used_model}", icon="🤖")
                     
