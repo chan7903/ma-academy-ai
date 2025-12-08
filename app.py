@@ -11,7 +11,6 @@ import base64
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import os
-import re
 
 # ----------------------------------------------------------
 # [1] 기본 설정
@@ -119,20 +118,13 @@ def load_students_from_sheet():
         return pd.DataFrame(sheet.get_all_records())
     except: return None
 
-# Matplotlib에서 $ 기호가 있으면 깨지는 문제 해결을 위해 제거하는 함수
-def clean_text_for_plot(text):
-    return text.replace('$', '')
-
-# 오답노트 이미지 생성
+# 🔥 [핵심 기능] 오답노트 이미지 생성 (수식 렌더링 포함)
 def create_solution_image(original_image, concepts, solution):
     try:
         font_path = get_korean_font_path()
         font_prop = fm.FontProperties(fname=font_path)
         
-        # 이미지 그릴 때는 $ 기호 제거 (깨짐 방지)
-        plot_concepts = clean_text_for_plot(concepts)
-        plot_solution = clean_text_for_plot(solution)
-
+        # 캔버스 생성
         w, h = original_image.size
         aspect = h / w
         fig_width = 10
@@ -141,24 +133,32 @@ def create_solution_image(original_image, concepts, solution):
         fig = plt.figure(figsize=(fig_width, fig_height))
         gs = fig.add_gridspec(2, 1, height_ratios=[aspect, 0.8])
         
+        # 1. 이미지 그리기
         ax_img = fig.add_subplot(gs[0])
         ax_img.imshow(original_image)
         ax_img.axis('off')
         
+        # 2. 텍스트 그리기
         ax_text = fig.add_subplot(gs[1])
         ax_text.axis('off')
         
-        ax_text.text(0.02, 0.95, f"[단원 및 핵심 개념]\n{plot_concepts}", 
+        # [수정] $ 기호를 지우지 않고 그대로 둡니다! (Matplotlib이 해석하도록)
+        
+        # (1) 단원 및 개념 (보라색)
+        ax_text.text(0.02, 0.95, f"[단원 및 핵심 개념]\n{concepts}", 
                      fontsize=15, color='purple', fontweight='bold', 
                      va='top', ha='left', wrap=True, fontproperties=font_prop)
         
-        line_count = plot_concepts.count('\n') + (len(plot_concepts) // 40) + 2
-        offset = line_count * 0.06 
+        # 높이 계산 (줄바꿈 고려)
+        line_count = concepts.count('\n') + (len(concepts) // 35) + 3
+        offset = line_count * 0.05 
         
-        ax_text.text(0.02, 0.95 - offset, f"[상세 풀이]\n{plot_solution}", 
+        # (2) 풀이 (검은색)
+        ax_text.text(0.02, 0.95 - offset, f"[상세 풀이]\n{solution}", 
                      fontsize=13, color='black', 
                      va='top', ha='left', wrap=True, fontproperties=font_prop)
 
+        # 저장
         buf = io.BytesIO()
         plt.savefig(buf, format='jpg', bbox_inches='tight', pad_inches=0.2)
         buf.seek(0)
@@ -269,40 +269,45 @@ if menu == "📸 문제 풀기":
                 try:
                     model = genai.GenerativeModel(MODEL_NAME)
                     
-                    # 🔥 [수정] 다시 LaTeX 사용을 허용합니다.
+                    # 🔥 [핵심 수정] 이미지용과 텍스트용 설명을 분리 요청
                     prompt = f"""
                     당신은 대치동 20년 경력 수학 강사입니다. 과목:{selected_subject}, 말투:{tone}
                     
-                    [지시사항]
-                    1. 모든 수식은 **반드시 LaTeX 형식($...$)을 사용**하세요. (예: $x^2$, $\\frac{{1}}{{2}}$)
-                    2. 풀이는 번호를 매겨 단계별로 작성하세요.
+                    [출력 형식 구분자 - 정확히 지킬 것]
                     
-                    [출력 형식 구분자]
-                    ===단원및개념===
-                    (단원명과 핵심 개념 요약)
-                    ===풀이===
-                    (단계별 상세 풀이. 수식은 LaTeX 사용)
+                    ===이미지용_개념===
+                    (사진 위에 적을 내용입니다. 핵심 개념을 2줄 요약하세요. 수식은 $y=x^2$ 처럼 간단한 LaTeX만 사용하세요.)
+                    
+                    ===이미지용_풀이===
+                    (사진 위에 적을 풀이입니다. 번호를 매겨 핵심만 적으세요. 수식은 $x^2$ 처럼 간단한 LaTeX를 사용하세요. 복잡한 분수나 극한은 피하고 한 줄 수식으로 표현하세요.)
+                    
+                    ===상세풀이_텍스트===
+                    (여기에는 화면 아래에 보여줄 완벽한 풀이를 적으세요. \\begin{{aligned}} 등 복잡한 LaTeX를 마음껏 사용하세요.)
+                    
                     ===쌍둥이문제===
-                    (쌍둥이 문제 1개. 수식은 LaTeX 사용)
+                    (쌍둥이 문제 1개. LaTeX 사용)
+                    
                     ===정답및해설===
-                    (정답 및 해설. 수식은 LaTeX 사용)
+                    (정답 및 해설. LaTeX 사용)
                     """
                     
                     response = model.generate_content([prompt, st.session_state['gemini_image']])
                     st.session_state['analysis_result'] = response.text
                     
-                    concepts = "분석 중"
-                    solution = "분석 중"
+                    # 파싱
+                    img_concept = "분석 중"
+                    img_solution = "분석 중"
                     
-                    if "===단원및개념===" in response.text:
-                        temp = response.text.split("===단원및개념===")[1]
-                        concepts = temp.split("===풀이===")[0].strip()
-                        solution = temp.split("===풀이===")[1].split("===쌍둥이문제===")[0].strip()
+                    if "===이미지용_개념===" in response.text:
+                        parts = response.text.split("===이미지용_개념===")[1]
+                        img_concept = parts.split("===이미지용_풀이===")[0].strip()
+                        img_solution = parts.split("===이미지용_풀이===")[1].split("===상세풀이_텍스트===")[0].strip()
                     
-                    # 이미지 생성 (여기서는 $ 기호를 빼고 그립니다)
-                    final_image = create_solution_image(st.session_state['gemini_image'], concepts, solution)
+                    # 🔥 이미지 생성 (이제 $ 표시가 있어도 지우지 않고 그립니다!)
+                    final_image = create_solution_image(st.session_state['gemini_image'], img_concept, img_solution)
                     st.session_state['solution_image'] = final_image 
                     
+                    # ImgBB 업로드
                     img_byte_arr = io.BytesIO()
                     final_image.save(img_byte_arr, format='JPEG', quality=90)
                     img_bytes = img_byte_arr.getvalue()
@@ -311,7 +316,7 @@ if menu == "📸 문제 풀기":
                     uploaded_link = upload_to_imgbb(img_bytes)
                     if uploaded_link: link = uploaded_link
                     
-                    unit_name = concepts.split("\n")[0][:20]
+                    unit_name = img_concept.split("\n")[0][:20]
                     save_result_to_sheet(
                         st.session_state['user_name'], selected_subject, unit_name, 
                         response.text, link
@@ -323,24 +328,28 @@ if menu == "📸 문제 풀기":
                     st.error(f"분석 오류: {e}")
 
     # ------------------------------------------------------
-    # [7] 분석 결과 출력 (하이브리드 방식 적용)
+    # [7] 분석 결과 출력
     # ------------------------------------------------------
     if st.session_state['analysis_result']:
         full_text = st.session_state['analysis_result']
         
-        parts = {"concepts": "", "solution": "", "twin_prob": "", "twin_ans": ""}
-        if "===단원및개념===" in full_text:
-             temp = full_text.split("===단원및개념===")[1]
-             parts["concepts"] = temp.split("===풀이===")[0].strip()
-             temp = temp.split("===풀이===")[1]
-             parts["solution"] = temp.split("===쌍둥이문제===")[0].strip()
-             temp = temp.split("===쌍둥이문제===")[1]
-             parts["twin_prob"] = temp.split("===정답및해설===")[0].strip()
-             parts["twin_ans"] = temp.split("===정답및해설===")[1].strip()
+        parts = {
+            "full_solution": "내용 없음", 
+            "twin_prob": "내용 없음", 
+            "twin_ans": "내용 없음"
+        }
+        
+        if "===상세풀이_텍스트===" in full_text:
+            temp = full_text.split("===상세풀이_텍스트===")[1]
+            parts["full_solution"] = temp.split("===쌍둥이문제===")[0].strip()
+            
+            temp = temp.split("===쌍둥이문제===")[1]
+            parts["twin_prob"] = temp.split("===정답및해설===")[0].strip()
+            parts["twin_ans"] = temp.split("===정답및해설===")[1].strip()
 
         st.markdown("---")
         
-        # 1. 상단: 이미지 보여주기 (필기 느낌)
+        # 1. 이미지 보여주기 (수식 적용됨!)
         if st.session_state['solution_image']:
             st.markdown("### 📘 오답 분석 결과 (선생님 필기)")
             st.image(st.session_state['solution_image'], caption="AI 선생님의 첨삭 노트", use_container_width=True)
@@ -354,15 +363,11 @@ if menu == "📸 문제 풀기":
                 mime="image/jpeg"
             )
             
-        # 🔥 [핵심] 하단: 깔끔한 텍스트로 다시 보여주기 (LaTeX 적용)
-        with st.expander("📜 상세 풀이 텍스트로 보기 (수식 포함)"):
-            st.markdown("**[단원 및 핵심 개념]**")
-            st.write(parts["concepts"]) # Streamlit이 알아서 LaTeX 렌더링
-            st.markdown("---")
-            st.markdown("**[상세 풀이]**")
-            st.write(parts["solution"]) # Streamlit이 알아서 LaTeX 렌더링
+        # 2. 하단 텍스트 (완벽한 상세 풀이)
+        with st.expander("📜 상세 풀이 텍스트로 보기 (복잡한 수식 포함)"):
+            st.markdown(parts["full_solution"])
 
-        st.markdown("---")
+        # 3. 쌍둥이 문제
         st.markdown("### 📝 쌍둥이 문제")
         st.write(parts["twin_prob"])
         
@@ -373,7 +378,6 @@ if menu == "📸 문제 풀기":
             with st.spinner("추가 문제 생성 중..."):
                 try:
                     model = genai.GenerativeModel(MODEL_NAME)
-                    # 추가 문제도 LaTeX 적용
                     extra_prompt = f"쌍둥이 문제 1개 더. 과목:{selected_subject}. 수식은 반드시 LaTeX($) 사용. 정답은 ===해설=== 뒤에."
                     res = model.generate_content([extra_prompt, st.session_state['gemini_image']])
                     
@@ -412,25 +416,17 @@ elif menu == "📒 내 오답 노트":
                 label = f"📅 {row.get('날짜', '')} | [{row.get('과목', '과목미상')}] | 🔁 복습 {review_cnt}회"
                 
                 with st.expander(label):
-                    # 오답노트에서도 이미지 먼저
                     img_link = row.get('링크')
                     if img_link and str(img_link).startswith('http'):
                         st.image(img_link, caption="첨삭된 오답노트", use_container_width=True)
                     else:
                         st.caption("이미지 없음")
 
-                    # 그 다음 텍스트(LaTeX 지원) 보여주기
                     content = row.get('내용', '내용 없음')
-                    if "===단원및개념===" in str(content):
+                    if "===상세풀이_텍스트===" in str(content):
                          try:
-                             temp = content.split("===단원및개념===")[1]
-                             c_con = temp.split("===풀이===")[0].strip()
-                             c_sol = temp.split("===풀이===")[1].split("===쌍둥이문제===")[0].strip()
-                             
-                             st.markdown("---")
-                             st.markdown("**📘 핵심 개념 (텍스트)**")
-                             st.write(c_con)
-                             st.markdown("**💡 풀이 (텍스트)**")
+                             c_sol = content.split("===상세풀이_텍스트===")[1].split("===쌍둥이문제===")[0].strip()
+                             st.markdown("**💡 상세 풀이**")
                              st.write(c_sol)
                          except: st.write(content)
                     else:
