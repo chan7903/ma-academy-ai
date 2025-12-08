@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import os
 import time
+import itertools
 
 # ----------------------------------------------------------
 # [1] 기본 설정
@@ -26,7 +27,6 @@ MODELS_TO_TRY = [
 
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
 
-# 👇 [핵심 수정] 키 리스트업 (4개)
 try:
     API_KEYS = [
         st.secrets["GOOGLE_API_KEY"],
@@ -34,12 +34,12 @@ try:
         st.secrets.get("GOOGLE_API_KEY_3", st.secrets["GOOGLE_API_KEY"]),
         st.secrets.get("GOOGLE_API_KEY_4", st.secrets["GOOGLE_API_KEY"])
     ]
+    KEY_CYCLE = itertools.cycle(API_KEYS)
     IMGBB_API_KEY = st.secrets["IMGBB_API_KEY"]
 except:
     st.error("설정 오류: Secrets 키 확인 필요")
     st.stop()
 
-# 👇 [핵심 수정] 현재 몇 번째 키를 쓸 차례인지 기억하기 (초기화 방지)
 if 'key_index' not in st.session_state:
     st.session_state['key_index'] = 0
 
@@ -134,8 +134,9 @@ def load_students_from_sheet():
         return pd.DataFrame(sheet.get_all_records())
     except: return None
 
+# 🔥 [수정] 수식 기호($)를 지우지 않고 그대로 반환하도록 변경!
 def clean_text_for_plot(text):
-    return text.replace('$', '').replace('\\', '')
+    return text 
 
 def create_solution_image(original_image, concepts, solution):
     try:
@@ -170,6 +171,7 @@ def create_solution_image(original_image, concepts, solution):
                          fontsize=13, color='black', 
                          va='top', ha='left', wrap=True, fontproperties=font_prop)
         except:
+            # 폰트 로드 실패 시에도 출력
             ax_text.text(0.02, 0.95, f"[Concept]\n{plot_concepts}", fontsize=15, color='purple', va='top', ha='left', wrap=True)
             ax_text.text(0.02, 0.5, f"[Solution]\n{plot_solution}", fontsize=13, color='black', va='top', ha='left', wrap=True)
 
@@ -182,24 +184,13 @@ def create_solution_image(original_image, concepts, solution):
         print(f"이미지 생성 실패: {e}")
         return original_image
 
-# 🔥 [핵심 업그레이드] 진짜 키 로테이션 함수
-# 호출될 때마다 키를 바꾸고, 실패하면 또 바꿉니다.
 def generate_content_with_rotation(prompt, image=None):
     last_error = None
-    
-    # 모델 3종류를 순서대로 시도
     for model_name in MODELS_TO_TRY:
-        # 각 모델 시도 전에 키를 무조건 교체 (에러 분산)
         try:
-            # 1. 현재 순서의 키 가져오기
             current_key_idx = st.session_state['key_index']
             current_key = API_KEYS[current_key_idx]
-            
-            # 2. 키 설정
             genai.configure(api_key=current_key)
-            
-            # (디버깅용 출력: 나중에 주석 처리 가능)
-            print(f"시도: {model_name} (Key #{current_key_idx + 1})")
             
             model = genai.GenerativeModel(model_name)
             
@@ -208,18 +199,14 @@ def generate_content_with_rotation(prompt, image=None):
             else:
                 response = model.generate_content(prompt)
                 
-            # 성공하면 다음 사람을 위해 키 인덱스 미리 1 증가시켜놓고 리턴
             st.session_state['key_index'] = (current_key_idx + 1) % len(API_KEYS)
-            return response.text, f"✅ {model_name} (Key #{current_key_idx + 1})"
+            return response.text, f"✅ {model_name}"
             
         except Exception as e:
-            print(f"실패: {model_name} (Key #{st.session_state['key_index'] + 1}) -> {e}")
             last_error = e
-            
-            # 실패했으니 즉시 다음 키로 변경!
             st.session_state['key_index'] = (st.session_state['key_index'] + 1) % len(API_KEYS)
             time.sleep(1) 
-            continue # 다음 모델 시도로 넘어감
+            continue
             
     raise last_error
 
@@ -329,6 +316,7 @@ if menu == "📸 문제 풀기":
                 st.session_state['gemini_image'] = resized_image
                 
                 try:
+                    # 🔥 [수정] 이미지용 풀이에도 LaTeX를 사용하도록 지시
                     prompt = f"""
                     당신은 대치동 20년 경력 수학 강사입니다. 과목:{selected_subject}, 말투:{tone}
                     
@@ -338,9 +326,9 @@ if menu == "📸 문제 풀기":
                     
                     [출력 형식 구분자]
                     ===이미지용_개념===
-                    (사진에 적을 개념 2줄 요약. LaTeX 대신 텍스트로)
+                    (사진에 적을 개념 2줄 요약. LaTeX 사용하여 $x^2$ 처럼 표현)
                     ===이미지용_풀이===
-                    (사진에 적을 풀이. 줄글 위주)
+                    (사진에 적을 풀이. 줄글 위주. LaTeX 사용하여 수식 표현. 예: $y=2x$ 대입)
                     
                     ===상세풀이_텍스트===
                     (화면 하단용 상세 풀이. LaTeX 적극 사용)
@@ -351,7 +339,6 @@ if menu == "📸 문제 풀기":
                     (LaTeX 사용)
                     """
                     
-                    # 🔥 로테이션 적용된 함수 호출
                     result_text, used_model = generate_content_with_rotation(prompt, st.session_state['gemini_image'])
                     
                     st.session_state['analysis_result'] = result_text
@@ -385,7 +372,7 @@ if menu == "📸 문제 풀기":
                     st.rerun()
                     
                 except Exception as e:
-                    st.error(f"모든 AI 모델과 키가 바쁩니다. 잠시 후 다시 시도해주세요. ({e})")
+                    st.error(f"모든 AI 모델이 바쁩니다. 잠시 후 다시 시도해주세요. ({e})")
 
     if st.session_state['analysis_result']:
         if st.session_state['used_model']:
