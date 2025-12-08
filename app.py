@@ -26,7 +26,7 @@ except:
     st.stop()
 
 # ----------------------------------------------------------
-# [2] 유틸리티 함수 (시트, 이미지)
+# [2] 유틸리티 함수
 # ----------------------------------------------------------
 @st.cache_resource
 def get_sheet_client():
@@ -38,8 +38,8 @@ def get_sheet_client():
         return client
     except: return None
 
-# 👇 [속도 개선 1] 이미지 크기 줄이는 함수 추가
-def resize_image(image, max_width=1024):
+# 이미지 리사이징 (캐싱 적용으로 속도 향상 시도)
+def resize_image(image, max_width=800): # 1024 -> 800으로 더 줄여서 속도 확보
     w, h = image.size
     if w > max_width:
         ratio = max_width / float(w)
@@ -52,7 +52,7 @@ def upload_to_imgbb(image_bytes):
     encoded_image = base64.b64encode(image_bytes).decode("utf-8")
     payload = {"key": IMGBB_API_KEY, "image": encoded_image}
     try:
-        response = requests.post(url, data=payload)
+        response = requests.post(url, data=payload, timeout=10) # 10초 타임아웃 설정
         if response.status_code == 200:
             return response.json()['data']['url']
         return None
@@ -168,29 +168,37 @@ if menu == "📸 문제 풀기":
         if up: img_file = up
 
     if img_file:
-        # 이미지 열기 및 리사이징 (속도 개선 핵심!)
-        raw_image = Image.open(img_file)
-        resized_image = resize_image(raw_image) # 1024px로 줄임
-        
-        # 리사이징된 이미지를 다시 바이트로 변환 (API 전송용)
-        img_byte_arr = io.BytesIO()
-        resized_image.save(img_byte_arr, format=raw_image.format if raw_image.format else 'JPEG')
-        img_bytes = img_byte_arr.getvalue()
-
-        st.image(resized_image, caption="선택된 문제", width=400)
+        # 👇 [여기가 중요!] 파일을 선택하자마자 로딩 표시를 띄웁니다.
+        with st.spinner("이미지 최적화 중... (잠시만 기다려주세요)"):
+            try:
+                # 이미지 열기 및 리사이징
+                raw_image = Image.open(img_file)
+                resized_image = resize_image(raw_image) 
+                
+                # 리사이징된 이미지를 다시 바이트로 변환
+                img_byte_arr = io.BytesIO()
+                resized_image.save(img_byte_arr, format=raw_image.format if raw_image.format else 'JPEG')
+                img_bytes = img_byte_arr.getvalue()
+                
+                # 화면 표시
+                st.image(resized_image, caption="선택된 문제", width=400)
+                
+            except Exception as e:
+                st.error("이미지를 처리하는 중 오류가 발생했습니다. (지원되지 않는 파일 형식일 수 있습니다)")
+                st.stop()
 
         if st.button("🔍 1타 강사 분석 시작", type="primary"):
             st.session_state['gemini_image'] = resized_image
             
-            # ImgBB 업로드 (백그라운드 처리 느낌으로)
+            # ImgBB 업로드
             link = "이미지_없음"
             with st.spinner("서버 연결 중..."):
                 uploaded_link = upload_to_imgbb(img_bytes)
                 if uploaded_link: link = uploaded_link
 
-            # 👇 [속도 개선 2] 스트리밍 방식으로 변경!
+            # AI 분석 (스트리밍)
             st.markdown("---")
-            result_container = st.empty() # 결과가 들어갈 빈 상자
+            result_container = st.empty()
             full_response = ""
             
             try:
@@ -198,19 +206,16 @@ if menu == "📸 문제 풀기":
                 prompt = f"""
                 대치동 20년 경력 수학 강사. 학년:{student_grade}, 말투:{tone}
                 1. [단원: 단원명]
-                2. 꼼꼼한 풀이.
+                2. 꼼꼼한 풀이 (가독성 좋게).
                 3. 쌍둥이 문제 1개. **정답은 맨 뒤에 ===해설=== 구분선 넣고 작성.**
                 """
                 
-                # stream=True 옵션 사용
                 response_stream = model.generate_content([prompt, st.session_state['gemini_image']], stream=True)
                 
-                # 한 글자씩 받아오며 화면에 뿌리기
                 for chunk in response_stream:
                     full_response += chunk.text
                     result_container.markdown(full_response)
                 
-                # 분석 끝난 후 세션 및 시트 저장
                 st.session_state['analysis_result'] = full_response
                 
                 unit_name = "미분류"
@@ -226,12 +231,12 @@ if menu == "📸 문제 풀기":
             except Exception as e:
                 st.error(f"분석 오류: {e}")
 
-    # 결과가 이미 있으면 보여주기 (새로고침 시)
+    # 결과 표시 및 추가 생성
     if st.session_state['analysis_result']:
-        # 방금 스트리밍으로 보여줬더라도, 버튼 클릭 등으로 리셋될 수 있으니 다시 그려줌
         full_text = st.session_state['analysis_result']
         parts = full_text.split("===해설===")
         
+        # 다시 깔끔하게 그리기 (스트리밍 완료 후)
         with st.container(border=True):
             st.markdown("### 💡 선생님의 분석")
             st.write(parts[0])
@@ -246,7 +251,6 @@ if menu == "📸 문제 풀기":
                     model = genai.GenerativeModel(MODEL_NAME)
                     extra_prompt = f"쌍둥이 문제 1개 더. 학년:{student_grade}. 정답은 ===해설=== 뒤에."
                     
-                    # 추가 생성도 스트리밍 적용
                     res_stream = model.generate_content([extra_prompt, st.session_state['gemini_image']], stream=True)
                     extra_full = ""
                     extra_container = st.empty()
@@ -255,7 +259,6 @@ if menu == "📸 문제 풀기":
                         extra_full += chunk.text
                         extra_container.markdown(extra_full)
                     
-                    # 스트리밍 끝나면 깔끔하게 다시 포맷팅
                     extra_container.empty()
                     p = extra_full.split("===해설===")
                     
