@@ -18,14 +18,12 @@ import time
 # ----------------------------------------------------------
 st.set_page_config(page_title="MA학원 AI 오답 도우미", page_icon="🏫", layout="centered")
 
-# 사용 가능한 모델 리스트 (우선순위대로)
-# 1순위: 2.5 (최신/최고성능)
-# 2순위: 2.0 (안정적)
-# 3순위: 2.0 Lite (비상용/무제한급)
+# 🔥 [4중 우회 전략] Gemma-3 추가!
 MODELS_TO_TRY = [
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite-preview-02-05" 
+    "gemini-2.5-flash",       # 1순위: 최신 성능
+    "gemini-2.0-flash",       # 2순위: 안정성
+    "gemini-2.0-flash-lite-preview-02-05", # 3순위: 속도/무제한급
+    "gemma-3-12b-it"          # 4순위: 최후의 보루 (Gemma)
 ]
 
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
@@ -177,12 +175,13 @@ def create_solution_image(original_image, concepts, solution):
         print(f"이미지 생성 실패: {e}")
         return original_image
 
-# 🔥 [핵심 업그레이드] 3중 우회 (Triple Fallback) 시스템
+# 🔥 [핵심] 4중 우회 (Quadruple Fallback)
 def generate_content_with_fallback(prompt, image=None):
     last_error = None
     
     for model_name in MODELS_TO_TRY:
         try:
+            print(f"모델 시도 중: {model_name}")
             model = genai.GenerativeModel(model_name)
             
             if image:
@@ -190,17 +189,14 @@ def generate_content_with_fallback(prompt, image=None):
             else:
                 response = model.generate_content(prompt)
                 
-            # 성공하면 바로 리턴
             return response.text, f"✅ {model_name}"
             
         except Exception as e:
-            # 실패하면 다음 모델 시도
             print(f"{model_name} 실패: {e}")
             last_error = e
-            time.sleep(1) # 1초 쉬고 다음 모델로
+            time.sleep(1)
             continue
             
-    # 다 실패하면 에러 던짐
     raise last_error
 
 # ----------------------------------------------------------
@@ -303,7 +299,7 @@ if menu == "📸 문제 풀기":
                 st.session_state['gemini_image'] = resized_image
                 
                 try:
-                    # 프롬프트 설정
+                    # 프롬프트
                     prompt = f"""
                     당신은 대치동 20년 경력 수학 강사입니다. 과목:{selected_subject}, 말투:{tone}
                     
@@ -326,7 +322,7 @@ if menu == "📸 문제 풀기":
                     (LaTeX 사용)
                     """
                     
-                    # 🔥 [수정] 3중 우회 함수 호출
+                    # 4중 우회 실행
                     result_text, used_model = generate_content_with_fallback(prompt, st.session_state['gemini_image'])
                     
                     st.session_state['analysis_result'] = result_text
@@ -361,13 +357,10 @@ if menu == "📸 문제 풀기":
                     st.rerun()
                     
                 except Exception as e:
-                    st.error(f"모든 AI 모델이 응답하지 않습니다. 잠시 후 다시 시도해주세요. ({e})")
+                    st.error(f"모든 AI 모델이 바쁩니다. 잠시 후 다시 시도해주세요. ({e})")
 
-    # ------------------------------------------------------
-    # [7] 분석 결과 출력
-    # ------------------------------------------------------
+    # 결과 출력
     if st.session_state['analysis_result']:
-        # 사용된 모델 표시 (디버깅용)
         if st.session_state['used_model']:
             st.toast(f"분석 모델: {st.session_state['used_model']}", icon="🤖")
 
@@ -417,7 +410,7 @@ if menu == "📸 문제 풀기":
                 try:
                     extra_prompt = f"쌍둥이 문제 1개 더. 과목:{selected_subject}. 수식은 반드시 $...$ 사용. 정답은 ===해설=== 뒤에."
                     
-                    # 🔥 추가 생성도 3중 우회 적용
+                    # 추가 생성도 4중 우회 적용
                     result_text, used_model = generate_content_with_fallback(extra_prompt, st.session_state['gemini_image'])
                     st.toast(f"생성 모델: {used_model}", icon="🤖")
                     
