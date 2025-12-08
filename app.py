@@ -34,7 +34,6 @@ try:
         st.secrets.get("GOOGLE_API_KEY_3", st.secrets["GOOGLE_API_KEY"]),
         st.secrets.get("GOOGLE_API_KEY_4", st.secrets["GOOGLE_API_KEY"])
     ]
-    KEY_CYCLE = itertools.cycle(API_KEYS)
     IMGBB_API_KEY = st.secrets["IMGBB_API_KEY"]
 except:
     st.error("설정 오류: Secrets 키 확인 필요")
@@ -134,56 +133,72 @@ def load_students_from_sheet():
         return pd.DataFrame(sheet.get_all_records())
     except: return None
 
-# 🔥 [중요] 수식 기호($)를 지우지 않고 그대로 반환 (지난번 수정 유지)
-def clean_text_for_plot(text):
+# 🔥 [수정] 1차 시도용 (그대로 내보냄)
+def text_for_plot_primary(text):
     return text 
 
-def create_solution_image(original_image, concepts, solution):
-    try:
-        font_prop = get_korean_font_prop()
-        # 여기서는 clean_text_for_plot이 아무것도 안 하므로 그대로 전달됨
-        plot_concepts = concepts 
-        plot_solution = solution
+# 🔥 [추가] 비상용 (수식 기호 다 떼어냄)
+def text_for_plot_fallback(text):
+    return text.replace('$', '').replace('\\', '').replace('{', '').replace('}', '')
 
-        w, h = original_image.size
-        aspect = h / w
-        fig_width = 10
-        fig_height = fig_width * aspect + 8
+def create_solution_image(original_image, concepts, solution):
+    font_prop = get_korean_font_prop()
+    
+    # 1차 시도: 수식 포함해서 그려보기
+    plot_concepts = text_for_plot_primary(concepts)
+    plot_solution = text_for_plot_primary(solution)
+
+    w, h = original_image.size
+    aspect = h / w
+    fig_width = 10
+    fig_height = fig_width * aspect + 8
+    
+    fig = plt.figure(figsize=(fig_width, fig_height))
+    gs = fig.add_gridspec(2, 1, height_ratios=[aspect, 0.8])
+    
+    ax_img = fig.add_subplot(gs[0])
+    ax_img.imshow(original_image)
+    ax_img.axis('off')
+    
+    ax_text = fig.add_subplot(gs[1])
+    ax_text.axis('off')
+    
+    try:
+        # 1차 시도 (수식 포함 렌더링)
+        ax_text.text(0.02, 0.95, f"[단원 및 핵심 개념]\n{plot_concepts}", 
+                        fontsize=15, color='purple', fontweight='bold', 
+                        va='top', ha='left', wrap=True, fontproperties=font_prop)
         
-        fig = plt.figure(figsize=(fig_width, fig_height))
-        gs = fig.add_gridspec(2, 1, height_ratios=[aspect, 0.8])
+        line_count = plot_concepts.count('\n') + (len(plot_concepts) // 35) + 3
+        offset = line_count * 0.05 
         
-        ax_img = fig.add_subplot(gs[0])
-        ax_img.imshow(original_image)
-        ax_img.axis('off')
+        ax_text.text(0.02, 0.95 - offset, f"[상세 풀이]\n{plot_solution}", 
+                        fontsize=13, color='black', 
+                        va='top', ha='left', wrap=True, fontproperties=font_prop)
+    except Exception as e:
+        # 🔥 [핵심 수정] 실패 시 비상용 텍스트(수식제거)로 재시도
+        print(f"이미지 렌더링 실패(1차), 비상용 텍스트로 재시도: {e}")
         
-        ax_text = fig.add_subplot(gs[1])
+        safe_concepts = text_for_plot_fallback(concepts)
+        safe_solution = text_for_plot_fallback(solution)
+        
+        # 기존 텍스트 지우고 다시 쓰기 (겹침 방지)
+        ax_text.clear()
         ax_text.axis('off')
         
         try:
-            ax_text.text(0.02, 0.95, f"[단원 및 핵심 개념]\n{plot_concepts}", 
-                         fontsize=15, color='purple', fontweight='bold', 
-                         va='top', ha='left', wrap=True, fontproperties=font_prop)
-            
-            line_count = plot_concepts.count('\n') + (len(plot_concepts) // 35) + 3
-            offset = line_count * 0.05 
-            
-            ax_text.text(0.02, 0.95 - offset, f"[상세 풀이]\n{plot_solution}", 
-                         fontsize=13, color='black', 
-                         va='top', ha='left', wrap=True, fontproperties=font_prop)
+            # 비상용 폰트(기본폰트)로 안전하게 출력 시도
+            ax_text.text(0.02, 0.95, f"[Concept (Safe Mode)]\n{safe_concepts}", fontsize=15, color='purple', va='top', ha='left', wrap=True)
+            ax_text.text(0.02, 0.5, f"[Solution (Safe Mode)]\n{safe_solution}", fontsize=13, color='black', va='top', ha='left', wrap=True)
         except:
-            # 폰트 로드 실패 시 예비 출력
-            ax_text.text(0.02, 0.95, f"[Concept]\n{plot_concepts}", fontsize=15, color='purple', va='top', ha='left', wrap=True)
-            ax_text.text(0.02, 0.5, f"[Solution]\n{plot_solution}", fontsize=13, color='black', va='top', ha='left', wrap=True)
+             print("비상용 이미지 렌더링도 실패")
 
-        buf = io.BytesIO()
-        plt.savefig(buf, format='jpg', bbox_inches='tight', pad_inches=0.2)
-        buf.seek(0)
-        plt.close(fig)
-        return Image.open(buf)
-    except Exception as e:
-        print(f"이미지 생성 실패: {e}")
-        return original_image
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='jpg', bbox_inches='tight', pad_inches=0.2)
+    buf.seek(0)
+    plt.close(fig)
+    return Image.open(buf)
 
 def generate_content_with_rotation(prompt, image=None):
     last_error = None
@@ -317,19 +332,18 @@ if menu == "📸 문제 풀기":
                 st.session_state['gemini_image'] = resized_image
                 
                 try:
-                    # 🔥 [핵심 수정] 프롬프트에 "무조건", "반드시"를 추가하여 AI에게 강력하게 지시
                     prompt = f"""
                     당신은 대치동 20년 경력 수학 강사입니다. 과목:{selected_subject}, 말투:{tone}
                     
                     [지시사항]
-                    1. 텍스트 수식은 **반드시** LaTeX($) 형식을 사용하세요.
+                    1. 텍스트 수식은 **반드시 LaTeX($) 형식**을 사용하세요.
                     2. 풀이는 번호를 매겨 단계별로 작성하세요.
                     
                     [출력 형식 구분자]
                     ===이미지용_개념===
-                    (사진에 적을 개념 2줄 요약. **반드시** LaTeX 사용하여 $x^2$, $\sqrt{{2}}$ 처럼 표현할 것)
+                    (사진에 적을 개념 2줄 요약. LaTeX 사용하여 $x^2$ 처럼 표현)
                     ===이미지용_풀이===
-                    (사진에 적을 풀이. 한글 설명과 함께 수식이 나올 때는 **무조건** `$ 수식 $` 형태로 작성하세요. 예: "주어진 식 $x^2+2x$에 $x=1$을 대입하면...")
+                    (사진에 적을 풀이. 줄글 위주. LaTeX 사용하여 수식 표현. 예: $y=2x$ 대입)
                     
                     ===상세풀이_텍스트===
                     (화면 하단용 상세 풀이. LaTeX 적극 사용)
@@ -423,9 +437,9 @@ if menu == "📸 문제 풀기":
         if st.button("🔄 쌍둥이 문제 추가 생성"):
             with st.spinner("추가 문제 생성 중..."):
                 try:
-                    # 🔥 추가 생성 프롬프트도 강화
-                    extra_prompt = f"쌍둥이 문제 1개 더. 과목:{selected_subject}. 수식은 반드시 LaTeX($) 사용. 정답은 ===해설=== 뒤에."
+                    extra_prompt = f"쌍둥이 문제 1개 더. 과목:{selected_subject}. 수식은 반드시 $...$ 사용. 정답은 ===해설=== 뒤에."
                     
+                    # 🔥 추가 생성도 로테이션 적용
                     result_text, used_model = generate_content_with_rotation(extra_prompt, st.session_state['gemini_image'])
                     st.toast(f"생성 모델: {used_model}", icon="🤖")
                     
