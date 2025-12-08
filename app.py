@@ -38,7 +38,7 @@ def get_sheet_client():
         return client
     except: return None
 
-# 이미지 리사이징 (안전장치 추가됨)
+# 이미지 리사이징 (안전장치 포함)
 def resize_image(image, max_width=800):
     w, h = image.size
     if w > max_width:
@@ -58,13 +58,14 @@ def upload_to_imgbb(image_bytes):
         return None
     except: return None
 
-def save_result_to_sheet(student_name, grade, unit, summary, link):
+def save_result_to_sheet(student_name, subject, unit, summary, link):
     client = get_sheet_client()
     if not client: return
     try:
         sheet = client.open_by_key(SHEET_ID).worksheet("results")
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        sheet.append_row([now, student_name, grade, unit, summary, link, "", 0])
+        # [날짜, 이름, 과목, 단원, 내용, 링크, (공란), 복습횟수]
+        sheet.append_row([now, student_name, subject, unit, summary, link, "", 0])
         st.toast("✅ 저장 완료!", icon="💾")
     except: pass
 
@@ -153,8 +154,27 @@ with st.sidebar:
 if menu == "📸 문제 풀기":
     with st.sidebar:
         st.markdown("---")
-        student_grade = st.selectbox("학년", ["초4", "초5", "초6", "중1", "중2", "중3", "고1", "고2", "고3"])
-        tone = "친절하게" if any(x in student_grade for x in ["초", "중1", "중2"]) else "엄격하게"
+        # 👇 [수정] 학년 -> 과목으로 변경 및 교육과정 분리
+        subject_options = [
+            "초4 수학", "초5 수학", "초6 수학",
+            "중1 수학", "중2 수학", "중3 수학",
+            "--- 2022 개정 (현 고1) ---",
+            "[22개정] 공통수학1", "[22개정] 공통수학2", "[22개정] 대수", "[22개정] 미적분1", "[22개정] 확통",
+            "--- 2015 개정 (현 고2/3) ---",
+            "[15개정] 수학(상/하)", "[15개정] 수1", "[15개정] 수2", "[15개정] 미적분", "[15개정] 확통", "[15개정] 기하"
+        ]
+        selected_subject = st.selectbox("과목 선택", subject_options)
+        
+        # 구분선 선택 방지
+        if "---" in selected_subject:
+            st.warning("⚠️ 과목을 선택해주세요.")
+            st.stop()
+
+        # 말투 설정 (초등/중등 vs 고등)
+        if any(x in selected_subject for x in ["초", "중1", "중2"]):
+            tone = "친절하고 상세하게, 핵심은 정확히"
+        else:
+            tone = "대치동 1타 강사처럼 엄격하고 논리정연하게"
 
     st.markdown("### 🏫 MA학원 AI 오답 도우미")
 
@@ -168,71 +188,68 @@ if menu == "📸 문제 풀기":
         if up: img_file = up
 
     if img_file:
-        # 👇 [수정됨] 이미지 처리 과정을 훨씬 안전하게 바꿨습니다.
+        # 이미지 미리보기
         try:
             raw_image = Image.open(img_file)
-            
-            # 1. RGBA(투명배경)나 P 모드라면 무조건 RGB로 변환 (이게 핵심!)
-            if raw_image.mode in ("RGBA", "P"):
-                raw_image = raw_image.convert("RGB")
-            
-            # 2. 리사이징
-            resized_image = resize_image(raw_image)
-            
-            # 3. 바이트 변환 (무조건 JPEG로 통일)
-            img_byte_arr = io.BytesIO()
-            resized_image.save(img_byte_arr, format='JPEG', quality=85)
-            img_bytes = img_byte_arr.getvalue()
-            
-            # 화면 표시
-            st.image(resized_image, caption="선택된 문제", width=400)
-            
-        except Exception as e:
-            st.error(f"이미지 처리 중 오류가 발생했습니다: {e}")
+            if raw_image.mode in ("RGBA", "P"): raw_image = raw_image.convert("RGB")
+            st.image(raw_image, caption="선택된 문제", width=400)
+        except:
+            st.error("이미지 오류")
             st.stop()
 
         if st.button("🔍 1타 강사 분석 시작", type="primary"):
-            st.session_state['gemini_image'] = resized_image
-            
-            link = "이미지_없음"
-            with st.spinner("이미지 서버 전송 중..."):
+            # 👇 [수정] 버튼 누르자마자 로딩 표시 시작 (모든 작업을 spinner 안으로 넣음)
+            with st.spinner("잠시만요! 1타 강사가 문제를 분석하고 있습니다..."):
+                
+                # 1. 이미지 처리 (리사이징 & 바이트 변환)
+                resized_image = resize_image(raw_image)
+                st.session_state['gemini_image'] = resized_image
+                
+                img_byte_arr = io.BytesIO()
+                resized_image.save(img_byte_arr, format='JPEG', quality=85)
+                img_bytes = img_byte_arr.getvalue()
+                
+                # 2. ImgBB 업로드
+                link = "이미지_없음"
                 uploaded_link = upload_to_imgbb(img_bytes)
                 if uploaded_link: link = uploaded_link
 
-            st.markdown("---")
-            result_container = st.empty()
-            full_response = ""
-            
-            try:
-                model = genai.GenerativeModel(MODEL_NAME)
-                prompt = f"""
-                대치동 20년 경력 수학 강사. 학년:{student_grade}, 말투:{tone}
-                1. [단원: 단원명]
-                2. 꼼꼼한 풀이.
-                3. 쌍둥이 문제 1개. **정답은 맨 뒤에 ===해설=== 구분선 넣고 작성.**
-                """
+                # 3. AI 분석 (스트리밍)
+                result_container = st.empty()
+                full_response = ""
                 
-                response_stream = model.generate_content([prompt, st.session_state['gemini_image']], stream=True)
-                
-                for chunk in response_stream:
-                    full_response += chunk.text
-                    result_container.markdown(full_response)
-                
-                st.session_state['analysis_result'] = full_response
-                
-                unit_name = "미분류"
-                if "[단원:" in full_response:
-                    try: unit_name = full_response.split("[단원:")[1].split("]")[0].strip()
-                    except: pass
-                
-                save_result_to_sheet(
-                    st.session_state['user_name'], student_grade, unit_name, 
-                    full_response, link
-                )
-                
-            except Exception as e:
-                st.error(f"분석 오류: {e}")
+                try:
+                    model = genai.GenerativeModel(MODEL_NAME)
+                    prompt = f"""
+                    대치동 20년 경력 수학 강사. 과목:{selected_subject}, 말투:{tone}
+                    1. [단원: 단원명]
+                    2. 꼼꼼한 풀이 (가독성 좋게).
+                    3. 쌍둥이 문제 1개. **정답은 맨 뒤에 ===해설=== 구분선 넣고 작성.**
+                    """
+                    
+                    response_stream = model.generate_content([prompt, st.session_state['gemini_image']], stream=True)
+                    
+                    for chunk in response_stream:
+                        full_response += chunk.text
+                        result_container.markdown(full_response)
+                    
+                    st.session_state['analysis_result'] = full_response
+                    
+                    unit_name = "미분류"
+                    if "[단원:" in full_response:
+                        try: unit_name = full_response.split("[단원:")[1].split("]")[0].strip()
+                        except: pass
+                    
+                    # 시트 저장
+                    save_result_to_sheet(
+                        st.session_state['user_name'], selected_subject, unit_name, 
+                        full_response, link
+                    )
+                    
+                except Exception as e:
+                    st.error(f"분석 오류: {e}")
 
+    # 결과 표시 및 추가 생성
     if st.session_state['analysis_result']:
         full_text = st.session_state['analysis_result']
         parts = full_text.split("===해설===")
@@ -249,7 +266,7 @@ if menu == "📸 문제 풀기":
             with st.spinner("추가 문제 생성 중..."):
                 try:
                     model = genai.GenerativeModel(MODEL_NAME)
-                    extra_prompt = f"쌍둥이 문제 1개 더. 학년:{student_grade}. 정답은 ===해설=== 뒤에."
+                    extra_prompt = f"쌍둥이 문제 1개 더. 과목:{selected_subject}. 정답은 ===해설=== 뒤에."
                     
                     res_stream = model.generate_content([extra_prompt, st.session_state['gemini_image']], stream=True)
                     extra_full = ""
