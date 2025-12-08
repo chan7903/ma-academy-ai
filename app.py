@@ -11,13 +11,22 @@ import base64
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import os
-import re
-import time # 시간 지연용
+import time
 
 # ----------------------------------------------------------
 # [1] 기본 설정
 # ----------------------------------------------------------
 st.set_page_config(page_title="MA학원 AI 오답 도우미", page_icon="🏫", layout="centered")
+
+# 사용 가능한 모델 리스트 (우선순위대로)
+# 1순위: 2.5 (최신/최고성능)
+# 2순위: 2.0 (안정적)
+# 3순위: 2.0 Lite (비상용/무제한급)
+MODELS_TO_TRY = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite-preview-02-05" 
+]
 
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
 
@@ -170,19 +179,10 @@ def create_solution_image(original_image, concepts, solution):
 
 # 🔥 [핵심 업그레이드] 3중 우회 (Triple Fallback) 시스템
 def generate_content_with_fallback(prompt, image=None):
-    # 사용할 모델 리스트 (순서대로 시도)
-    # 1. 2.5 (최신) -> 2. 2.0 (안정) -> 3. 2.0 Lite (비상용, 속도빠름)
-    MODELS_TO_TRY = [
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-2.0-flash-lite-preview-02-05" 
-    ]
-    
     last_error = None
     
     for model_name in MODELS_TO_TRY:
         try:
-            print(f"모델 시도 중: {model_name}")
             model = genai.GenerativeModel(model_name)
             
             if image:
@@ -194,6 +194,7 @@ def generate_content_with_fallback(prompt, image=None):
             return response.text, f"✅ {model_name}"
             
         except Exception as e:
+            # 실패하면 다음 모델 시도
             print(f"{model_name} 실패: {e}")
             last_error = e
             time.sleep(1) # 1초 쉬고 다음 모델로
