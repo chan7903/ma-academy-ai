@@ -12,10 +12,9 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import os
 import time
-import itertools
 
 # ----------------------------------------------------------
-# [1] 기본 설정 & API 키 로테이션 (4개 버전)
+# [1] 기본 설정
 # ----------------------------------------------------------
 st.set_page_config(page_title="MA학원 AI 오답 도우미", page_icon="🏫", layout="centered")
 
@@ -27,22 +26,22 @@ MODELS_TO_TRY = [
 
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
 
-# 👇 [핵심 수정] 키 4개를 리스트로 묶어서 준비
+# 👇 [핵심 수정] 키 리스트업 (4개)
 try:
-    api_keys = [
+    API_KEYS = [
         st.secrets["GOOGLE_API_KEY"],
         st.secrets.get("GOOGLE_API_KEY_2", st.secrets["GOOGLE_API_KEY"]),
         st.secrets.get("GOOGLE_API_KEY_3", st.secrets["GOOGLE_API_KEY"]),
-        st.secrets.get("GOOGLE_API_KEY_4", st.secrets["GOOGLE_API_KEY"])  # 4번째 키 추가!
+        st.secrets.get("GOOGLE_API_KEY_4", st.secrets["GOOGLE_API_KEY"])
     ]
-    # 키를 무한히 순서대로 꺼내주는 '마르지 않는 샘' 생성
-    KEY_CYCLE = itertools.cycle(api_keys)
-    
     IMGBB_API_KEY = st.secrets["IMGBB_API_KEY"]
-    
 except:
-    st.error("설정 오류: Secrets에 API 키를 등록해주세요.")
+    st.error("설정 오류: Secrets 키 확인 필요")
     st.stop()
+
+# 👇 [핵심 수정] 현재 몇 번째 키를 쓸 차례인지 기억하기 (초기화 방지)
+if 'key_index' not in st.session_state:
+    st.session_state['key_index'] = 0
 
 # ----------------------------------------------------------
 # [2] 유틸리티 함수
@@ -183,33 +182,44 @@ def create_solution_image(original_image, concepts, solution):
         print(f"이미지 생성 실패: {e}")
         return original_image
 
-# 🔥 [핵심 업그레이드] 키 로테이션 + 3중 우회 함수
-def generate_content_with_fallback(prompt, image=None):
+# 🔥 [핵심 업그레이드] 진짜 키 로테이션 함수
+# 호출될 때마다 키를 바꾸고, 실패하면 또 바꿉니다.
+def generate_content_with_rotation(prompt, image=None):
     last_error = None
     
-    # 모델 3종류를 시도
+    # 모델 3종류를 순서대로 시도
     for model_name in MODELS_TO_TRY:
+        # 각 모델 시도 전에 키를 무조건 교체 (에러 분산)
         try:
-            # 1. 사용할 API 키를 순서대로 하나 꺼냄 (4개 중 하나)
-            current_key = next(KEY_CYCLE)
-            genai.configure(api_key=current_key) # 🔥 키 교체!
+            # 1. 현재 순서의 키 가져오기
+            current_key_idx = st.session_state['key_index']
+            current_key = API_KEYS[current_key_idx]
             
-            # (디버깅용: 실제 운영시엔 주석 처리해도 됨)
-            # print(f"모델 시도: {model_name} (Key: ...{current_key[-4:]})")
+            # 2. 키 설정
+            genai.configure(api_key=current_key)
+            
+            # (디버깅용 출력: 나중에 주석 처리 가능)
+            print(f"시도: {model_name} (Key #{current_key_idx + 1})")
             
             model = genai.GenerativeModel(model_name)
+            
             if image:
                 response = model.generate_content([prompt, image])
             else:
                 response = model.generate_content(prompt)
                 
-            return response.text, f"✅ {model_name}"
+            # 성공하면 다음 사람을 위해 키 인덱스 미리 1 증가시켜놓고 리턴
+            st.session_state['key_index'] = (current_key_idx + 1) % len(API_KEYS)
+            return response.text, f"✅ {model_name} (Key #{current_key_idx + 1})"
             
         except Exception as e:
-            print(f"{model_name} 실패: {e}")
+            print(f"실패: {model_name} (Key #{st.session_state['key_index'] + 1}) -> {e}")
             last_error = e
-            time.sleep(1) # 1초 쉬고 다음으로
-            continue
+            
+            # 실패했으니 즉시 다음 키로 변경!
+            st.session_state['key_index'] = (st.session_state['key_index'] + 1) % len(API_KEYS)
+            time.sleep(1) 
+            continue # 다음 모델 시도로 넘어감
             
     raise last_error
 
@@ -341,8 +351,8 @@ if menu == "📸 문제 풀기":
                     (LaTeX 사용)
                     """
                     
-                    # 🔥 4개 키 로테이션 + 3중 모델 우회 실행
-                    result_text, used_model = generate_content_with_fallback(prompt, st.session_state['gemini_image'])
+                    # 🔥 로테이션 적용된 함수 호출
+                    result_text, used_model = generate_content_with_rotation(prompt, st.session_state['gemini_image'])
                     
                     st.session_state['analysis_result'] = result_text
                     st.session_state['used_model'] = used_model
@@ -375,7 +385,7 @@ if menu == "📸 문제 풀기":
                     st.rerun()
                     
                 except Exception as e:
-                    st.error(f"모든 AI 모델이 바쁩니다. 잠시 후 다시 시도해주세요. ({e})")
+                    st.error(f"모든 AI 모델과 키가 바쁩니다. 잠시 후 다시 시도해주세요. ({e})")
 
     if st.session_state['analysis_result']:
         if st.session_state['used_model']:
@@ -428,7 +438,7 @@ if menu == "📸 문제 풀기":
                     extra_prompt = f"쌍둥이 문제 1개 더. 과목:{selected_subject}. 수식은 반드시 $...$ 사용. 정답은 ===해설=== 뒤에."
                     
                     # 🔥 추가 생성도 로테이션 적용
-                    result_text, used_model = generate_content_with_fallback(extra_prompt, st.session_state['gemini_image'])
+                    result_text, used_model = generate_content_with_rotation(extra_prompt, st.session_state['gemini_image'])
                     st.toast(f"생성 모델: {used_model}", icon="🤖")
                     
                     p_text = result_text
