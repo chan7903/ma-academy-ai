@@ -38,7 +38,6 @@ def get_sheet_client():
         return client
     except: return None
 
-# 이미지 리사이징 (안전장치 포함)
 def resize_image(image, max_width=800):
     w, h = image.size
     if w > max_width:
@@ -64,7 +63,6 @@ def save_result_to_sheet(student_name, subject, unit, summary, link):
     try:
         sheet = client.open_by_key(SHEET_ID).worksheet("results")
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # [날짜, 이름, 과목, 단원, 내용, 링크, (공란), 복습횟수]
         sheet.append_row([now, student_name, subject, unit, summary, link, "", 0])
         st.toast("✅ 저장 완료!", icon="💾")
     except: pass
@@ -154,7 +152,6 @@ with st.sidebar:
 if menu == "📸 문제 풀기":
     with st.sidebar:
         st.markdown("---")
-        # 👇 [수정] 학년 -> 과목으로 변경 및 교육과정 분리
         subject_options = [
             "초4 수학", "초5 수학", "초6 수학",
             "중1 수학", "중2 수학", "중3 수학",
@@ -165,16 +162,14 @@ if menu == "📸 문제 풀기":
         ]
         selected_subject = st.selectbox("과목 선택", subject_options)
         
-        # 구분선 선택 방지
         if "---" in selected_subject:
             st.warning("⚠️ 과목을 선택해주세요.")
             st.stop()
 
-        # 말투 설정 (초등/중등 vs 고등)
         if any(x in selected_subject for x in ["초", "중1", "중2"]):
-            tone = "친절하고 상세하게, 핵심은 정확히"
+            tone = "친절하고 상세하게"
         else:
-            tone = "대치동 1타 강사처럼 엄격하고 논리정연하게"
+            tone = "엄격하고 간결하게, 수식 위주로"
 
     st.markdown("### 🏫 MA학원 AI 오답 도우미")
 
@@ -188,7 +183,6 @@ if menu == "📸 문제 풀기":
         if up: img_file = up
 
     if img_file:
-        # 이미지 미리보기
         try:
             raw_image = Image.open(img_file)
             if raw_image.mode in ("RGBA", "P"): raw_image = raw_image.convert("RGB")
@@ -198,10 +192,9 @@ if menu == "📸 문제 풀기":
             st.stop()
 
         if st.button("🔍 1타 강사 분석 시작", type="primary"):
-            # 👇 [수정] 버튼 누르자마자 로딩 표시 시작 (모든 작업을 spinner 안으로 넣음)
-            with st.spinner("잠시만요! 1타 강사가 문제를 분석하고 있습니다..."):
+            with st.spinner("1타 강사가 문제를 분석하고 있습니다..."):
                 
-                # 1. 이미지 처리 (리사이징 & 바이트 변환)
+                # 1. 이미지 처리
                 resized_image = resize_image(raw_image)
                 st.session_state['gemini_image'] = resized_image
                 
@@ -214,79 +207,131 @@ if menu == "📸 문제 풀기":
                 uploaded_link = upload_to_imgbb(img_bytes)
                 if uploaded_link: link = uploaded_link
 
-                # 3. AI 분석 (스트리밍)
-                result_container = st.empty()
-                full_response = ""
-                
+                # 3. AI 분석 (구분자 사용)
                 try:
                     model = genai.GenerativeModel(MODEL_NAME)
+                    
+                    # 🔥 [수정] 프롬프트: 구분자를 사용하여 영역을 확실히 나눔
                     prompt = f"""
-                    대치동 20년 경력 수학 강사. 과목:{selected_subject}, 말투:{tone}
-                    1. [단원: 단원명]
-                    2. 꼼꼼한 풀이 (가독성 좋게).
-                    3. 쌍둥이 문제 1개. **정답은 맨 뒤에 ===해설=== 구분선 넣고 작성.**
+                    당신은 대치동 20년 경력 수학 강사입니다. 과목:{selected_subject}, 말투:{tone}
+                    
+                    [출력 형식]
+                    아래 구분자를 사용하여 4가지 영역을 정확히 나눠서 출력하세요.
+                    
+                    ===단원및개념===
+                    (이 문제의 단원명과 풀이에 꼭 필요한 핵심 개념이나 공식을 간단히 적으세요)
+                    
+                    ===풀이===
+                    (과도한 친절함이나 불필요한 말은 빼고, 수식 위주로 간결하고 논리적으로 설명하세요. 논리적 비약이 없도록 연결어는 자연스럽게 쓰세요.)
+                    
+                    ===쌍둥이문제===
+                    (위 문제와 단원 및 풀이 논리가 같은 문제를 하나 만드세요)
+                    
+                    ===정답및해설===
+                    (쌍둥이 문제의 정답과 상세 해설을 적으세요)
                     """
                     
-                    response_stream = model.generate_content([prompt, st.session_state['gemini_image']], stream=True)
-                    
-                    for chunk in response_stream:
-                        full_response += chunk.text
-                        result_container.markdown(full_response)
-                    
-                    st.session_state['analysis_result'] = full_response
+                    response = model.generate_content([prompt, st.session_state['gemini_image']])
+                    st.session_state['analysis_result'] = response.text
                     
                     unit_name = "미분류"
-                    if "[단원:" in full_response:
-                        try: unit_name = full_response.split("[단원:")[1].split("]")[0].strip()
+                    if "===단원및개념===" in response.text:
+                        try: 
+                            # 단원명 추출 시도 (첫 줄)
+                            section = response.text.split("===단원및개념===")[1].split("===")[0].strip()
+                            unit_name = section.split("\n")[0]
                         except: pass
                     
-                    # 시트 저장
                     save_result_to_sheet(
                         st.session_state['user_name'], selected_subject, unit_name, 
-                        full_response, link
+                        response.text, link
                     )
+                    
+                    # 🔥 [핵심] 분석이 끝나면 즉시 화면을 새로고침하여 결과를 깔끔하게 보여줌 (중복 제거)
+                    st.rerun()
                     
                 except Exception as e:
                     st.error(f"분석 오류: {e}")
 
-    # 결과 표시 및 추가 생성
+    # ------------------------------------------------------
+    # [7] 분석 결과 출력 (여기가 최종 화면)
+    # ------------------------------------------------------
     if st.session_state['analysis_result']:
         full_text = st.session_state['analysis_result']
-        parts = full_text.split("===해설===")
         
+        # 구분자로 텍스트 나누기
+        # 만약 구분자가 제대로 안 나왔을 때를 대비해 기본값 처리
+        parts = {
+            "concepts": "분석 내용 없음",
+            "solution": "분석 내용 없음",
+            "twin_prob": "생성 실패",
+            "twin_ans": "생성 실패"
+        }
+        
+        try:
+            # 파싱 로직
+            if "===단원및개념===" in full_text:
+                temp = full_text.split("===단원및개념===")[1]
+                parts["concepts"] = temp.split("===풀이===")[0].strip()
+                
+                temp = temp.split("===풀이===")[1]
+                parts["solution"] = temp.split("===쌍둥이문제===")[0].strip()
+                
+                temp = temp.split("===쌍둥이문제===")[1]
+                parts["twin_prob"] = temp.split("===정답및해설===")[0].strip()
+                
+                parts["twin_ans"] = temp.split("===정답및해설===")[1].strip()
+        except:
+            parts["solution"] = full_text # 파싱 실패 시 통으로 보여줌
+
+        st.markdown("---")
+        
+        # 1. 단원 및 개념 (눌러야 나옴)
+        with st.expander("📘 단원 및 핵심 개념 확인하기"):
+            st.info(parts["concepts"])
+            
+        # 2. 풀이 (간결한 수식 위주, 바로 보임)
         with st.container(border=True):
-            st.markdown("### 💡 선생님의 분석")
-            st.write(parts[0])
+            st.markdown("### 💡 선생님의 풀이")
+            st.write(parts["solution"])
+            
+        # 3. 쌍둥이 문제 (바로 보임)
+        st.markdown("### 📝 쌍둥이 문제")
+        st.write(parts["twin_prob"])
         
-        if len(parts) > 1:
-            with st.expander("🔐 정답 및 해설 보기 (클릭)"):
-                st.write(parts[1])
+        # 4. 정답 및 해설 (눌러야 나옴)
+        with st.expander("🔐 정답 및 해설 보기"):
+            st.write(parts["twin_ans"])
         
+        # 5. 추가 생성 버튼
         if st.button("🔄 쌍둥이 문제 추가 생성"):
             with st.spinner("추가 문제 생성 중..."):
                 try:
                     model = genai.GenerativeModel(MODEL_NAME)
-                    extra_prompt = f"쌍둥이 문제 1개 더. 과목:{selected_subject}. 정답은 ===해설=== 뒤에."
+                    extra_prompt = f"""
+                    위 문제와 동일한 단원의 쌍둥이 문제 1개를 더 만드세요.
+                    형식:
+                    ===쌍둥이문제===
+                    (문제 내용)
+                    ===정답및해설===
+                    (정답 및 해설)
+                    """
+                    res = model.generate_content([extra_prompt, st.session_state['gemini_image']])
                     
-                    res_stream = model.generate_content([extra_prompt, st.session_state['gemini_image']], stream=True)
-                    extra_full = ""
-                    extra_container = st.empty()
+                    # 추가 문제 파싱 및 출력
+                    p_text = res.text
+                    p_prob = "생성 실패"
+                    p_ans = "생성 실패"
                     
-                    for chunk in res_stream:
-                        extra_full += chunk.text
-                        extra_container.markdown(extra_full)
+                    if "===쌍둥이문제===" in p_text:
+                        temp = p_text.split("===쌍둥이문제===")[1]
+                        p_prob = temp.split("===정답및해설===")[0].strip()
+                        p_ans = temp.split("===정답및해설===")[1].strip()
                     
-                    extra_container.empty()
-                    p = extra_full.split("===해설===")
-                    
-                    with st.container(border=True):
-                        st.markdown("#### ➕ 추가 문제")
-                        st.write(p[0])
-                    
-                    if len(p) > 1:
-                        with st.expander("🔐 정답 보기"):
-                            st.write(p[1])
-                            
+                    st.markdown("#### ➕ 추가 문제")
+                    st.write(p_prob)
+                    with st.expander("🔐 정답 보기"):
+                        st.write(p_ans)
                 except Exception as e:
                     st.error(f"오류: {e}")
 
@@ -306,20 +351,26 @@ elif menu == "📒 내 오답 노트":
             for index, row in my_notes.iterrows():
                 review_cnt = row.get('복습횟수')
                 if review_cnt == '' or review_cnt is None: review_cnt = 0
-                label = f"📅 {row.get('날짜', '')} | [{row.get('단원', '단원미상')}] | 🔁 복습 {review_cnt}회"
+                label = f"📅 {row.get('날짜', '')} | [{row.get('과목', '과목미상')}] | 🔁 복습 {review_cnt}회"
                 
                 with st.expander(label):
                     col1, col2 = st.columns([2, 1])
                     with col1:
-                        with st.container(border=True):
-                            content = row.get('내용', '내용 없음')
-                            if "===해설===" in str(content):
-                                c_parts = str(content).split("===해설===")
-                                st.write(c_parts[0])
-                                if st.button("정답 보기", key=f"ans_{index}"):
-                                    st.info(c_parts[1])
-                            else:
-                                st.write(content)
+                        # 오답노트에서도 파싱해서 보여주기 시도
+                        content = row.get('내용', '내용 없음')
+                        if "===단원및개념===" in str(content):
+                            try:
+                                c_con = content.split("===단원및개념===")[1].split("===풀이===")[0]
+                                c_sol = content.split("===풀이===")[1].split("===쌍둥이문제===")[0]
+                                
+                                st.caption("📘 핵심 개념")
+                                st.write(c_con)
+                                st.markdown("**💡 풀이**")
+                                st.write(c_sol)
+                            except: st.write(content)
+                        else:
+                            st.write(content)
+
                         if st.button("✅ 복습 완료", key=f"rev_{index}"):
                             if increment_review_count(row.get('날짜'), row.get('이름')):
                                 st.toast("복습 횟수 증가!")
