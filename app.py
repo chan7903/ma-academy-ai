@@ -23,7 +23,6 @@ MODELS_TO_TRY = [
     "gemini-2.5-flash",       # 1순위: 최신 성능
     "gemini-2.0-flash",       # 2순위: 안정성
     "gemini-2.0-flash-lite-preview-02-05", # 3순위: 속도/무제한급
-    "gemma-3-12b-it"          # 4순위: 최후의 보루 (Gemma)
 ]
 
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
@@ -473,3 +472,4 @@ elif menu == "📒 내 오답 노트":
                             st.rerun()
         else: st.info("오답노트가 없습니다.")
     else: st.warning("데이터 로딩 실패")
+
