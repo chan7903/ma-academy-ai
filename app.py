@@ -18,7 +18,10 @@ import re
 # ----------------------------------------------------------
 st.set_page_config(page_title="MA학원 AI 오답 도우미", page_icon="🏫", layout="centered")
 
-MODEL_NAME = "gemini-2.0-flash"
+# 👇 [핵심] 1순위, 2순위 모델 지정
+PRIMARY_MODEL = "gemini-2.5-flash"  # 일단 이거 먼저 시도
+SECONDARY_MODEL = "gemini-2.0-flash" # 안 되면 이거 사용
+
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
 
 try:
@@ -42,7 +45,6 @@ def get_sheet_client():
         return client
     except: return None
 
-# 폰트 다운로드 함수 (캐시 적용)
 @st.cache_resource
 def get_korean_font_prop():
     font_file = "NanumGothic.ttf"
@@ -53,11 +55,8 @@ def get_korean_font_prop():
             with open(font_file, "wb") as f:
                 f.write(r.content)
         except: pass
-    
-    try:
-        return fm.FontProperties(fname=font_file)
-    except:
-        return None # 폰트 로드 실패 시 None 반환
+    try: return fm.FontProperties(fname=font_file)
+    except: return None
 
 def resize_image(image, max_width=800):
     w, h = image.size
@@ -124,17 +123,12 @@ def load_students_from_sheet():
         return pd.DataFrame(sheet.get_all_records())
     except: return None
 
-# 이미지를 그릴 때 $ 기호를 제거하는 함수 (그림 깨짐 방지용)
 def clean_text_for_plot(text):
-    return text.replace('$', '').replace('\\', '') # 백슬래시도 제거
+    return text.replace('$', '').replace('\\', '')
 
-# 🔥 [수정됨] 이미지 생성 함수 (안전장치 강화)
 def create_solution_image(original_image, concepts, solution):
     try:
-        # 1. 폰트 가져오기
         font_prop = get_korean_font_prop()
-        
-        # 2. 이미지용 텍스트 정제 (LaTeX 기호 제거)
         plot_concepts = clean_text_for_plot(concepts)
         plot_solution = clean_text_for_plot(solution)
 
@@ -146,16 +140,13 @@ def create_solution_image(original_image, concepts, solution):
         fig = plt.figure(figsize=(fig_width, fig_height))
         gs = fig.add_gridspec(2, 1, height_ratios=[aspect, 0.8])
         
-        # 이미지
         ax_img = fig.add_subplot(gs[0])
         ax_img.imshow(original_image)
         ax_img.axis('off')
         
-        # 텍스트
         ax_text = fig.add_subplot(gs[1])
         ax_text.axis('off')
         
-        # 🔥 폰트 적용 시도 (실패하면 기본 폰트로 그림)
         try:
             ax_text.text(0.02, 0.95, f"[단원 및 핵심 개념]\n{plot_concepts}", 
                          fontsize=15, color='purple', fontweight='bold', 
@@ -168,7 +159,6 @@ def create_solution_image(original_image, concepts, solution):
                          fontsize=13, color='black', 
                          va='top', ha='left', wrap=True, fontproperties=font_prop)
         except:
-            # 폰트 로드 실패시 기본 폰트로 그림 (깨지더라도 나옴)
             ax_text.text(0.02, 0.95, f"[Concept]\n{plot_concepts}", fontsize=15, color='purple', va='top', ha='left', wrap=True)
             ax_text.text(0.02, 0.5, f"[Solution]\n{plot_solution}", fontsize=13, color='black', va='top', ha='left', wrap=True)
 
@@ -177,10 +167,32 @@ def create_solution_image(original_image, concepts, solution):
         buf.seek(0)
         plt.close(fig)
         return Image.open(buf)
-        
     except Exception as e:
-        print(f"이미지 생성 완전 실패: {e}")
+        print(f"이미지 생성 실패: {e}")
         return original_image
+
+# 🔥 [핵심 기능] AI 모델 자동 우회 (Fallback) 함수
+def generate_content_with_fallback(prompt, image=None):
+    # 1차 시도: 2.5 Flash
+    try:
+        model = genai.GenerativeModel(PRIMARY_MODEL)
+        if image:
+            response = model.generate_content([prompt, image])
+        else:
+            response = model.generate_content(prompt)
+        return response.text, "🚀 2.5 Flash"
+    except Exception as e:
+        # 2차 시도: 2.0 Flash (2.5가 실패하면 여기로 옴)
+        print(f"1차 모델 실패({e}), 2차 모델로 전환합니다.")
+        try:
+            model = genai.GenerativeModel(SECONDARY_MODEL)
+            if image:
+                response = model.generate_content([prompt, image])
+            else:
+                response = model.generate_content(prompt)
+            return response.text, "🛡️ 2.0 Flash (백업)"
+        except Exception as e2:
+            raise e2 # 둘 다 실패하면 에러
 
 # ----------------------------------------------------------
 # [3] 로그인
@@ -194,6 +206,8 @@ if 'gemini_image' not in st.session_state:
     st.session_state['gemini_image'] = None
 if 'solution_image' not in st.session_state:
     st.session_state['solution_image'] = None
+if 'used_model' not in st.session_state: # 어떤 모델 썼는지 기록
+    st.session_state['used_model'] = ""
 
 def login_page():
     st.markdown("<h1 style='text-align: center;'>🔒 MA학원 로그인</h1>", unsafe_allow_html=True)
@@ -280,47 +294,43 @@ if menu == "📸 문제 풀기":
                 st.session_state['gemini_image'] = resized_image
                 
                 try:
-                    model = genai.GenerativeModel(MODEL_NAME)
-                    
-                    # 🔥 [프롬프트 수정] 수식 깨짐 방지를 위해 LaTeX 사용법 명확히 지시
                     prompt = f"""
                     당신은 대치동 20년 경력 수학 강사입니다. 과목:{selected_subject}, 말투:{tone}
                     
-                    [필수 지시사항 - 수식 표기법]
-                    1. 텍스트로 보여줄 때는 **무조건 LaTeX 형식**을 사용하세요.
-                       - 인라인 수식: $y=x^2$ (달러 기호 1개)
-                       - 블록 수식: $$ y = x^2 $$ (달러 기호 2개)
-                    2. 절대 `\\[`, `\\]`, `\\(`, `\\)` 같은 괄호형 LaTeX를 쓰지 마세요. 깨집니다.
+                    [지시사항]
+                    1. 텍스트 수식은 **반드시 LaTeX($) 형식**을 사용하세요.
+                    2. 풀이는 번호를 매겨 단계별로 작성하세요.
                     
                     [출력 형식 구분자]
                     ===이미지용_개념===
-                    (사진에 적을 내용. 간단한 텍스트 위주. 특수문자 자제)
+                    (사진에 적을 개념 2줄 요약. LaTeX 대신 텍스트로)
                     ===이미지용_풀이===
-                    (사진에 적을 풀이. 줄글 위주. x제곱 처럼 한글로 풀어서 작성)
+                    (사진에 적을 풀이. 줄글 위주)
                     
                     ===상세풀이_텍스트===
-                    (여기에는 화면 하단에 보여줄 완벽한 풀이 작성. LaTeX 적극 사용)
+                    (화면 하단용 상세 풀이. LaTeX 적극 사용)
                     
                     ===쌍둥이문제===
-                    (LaTeX 사용하여 작성)
-                    
+                    (LaTeX 사용)
                     ===정답및해설===
-                    (LaTeX 사용하여 작성)
+                    (LaTeX 사용)
                     """
                     
-                    response = model.generate_content([prompt, st.session_state['gemini_image']])
-                    st.session_state['analysis_result'] = response.text
+                    # 🔥 [수정됨] 자동 우회 함수 사용
+                    result_text, used_model = generate_content_with_fallback(prompt, st.session_state['gemini_image'])
+                    
+                    st.session_state['analysis_result'] = result_text
+                    st.session_state['used_model'] = used_model # 어떤 모델 썼는지 기록
                     
                     # 파싱
                     img_concept = "요약"
                     img_solution = "풀이"
                     
-                    if "===이미지용_개념===" in response.text:
-                        parts = response.text.split("===이미지용_개념===")[1]
+                    if "===이미지용_개념===" in result_text:
+                        parts = result_text.split("===이미지용_개념===")[1]
                         img_concept = parts.split("===이미지용_풀이===")[0].strip()
                         img_solution = parts.split("===이미지용_풀이===")[1].split("===상세풀이_텍스트===")[0].strip()
                     
-                    # 이미지 생성
                     final_image = create_solution_image(st.session_state['gemini_image'], img_concept, img_solution)
                     st.session_state['solution_image'] = final_image 
                     
@@ -335,7 +345,7 @@ if menu == "📸 문제 풀기":
                     unit_name = img_concept.split("\n")[0][:20]
                     save_result_to_sheet(
                         st.session_state['user_name'], selected_subject, unit_name, 
-                        response.text, link
+                        result_text, link
                     )
                     
                     st.rerun()
@@ -347,6 +357,10 @@ if menu == "📸 문제 풀기":
     # [7] 분석 결과 출력
     # ------------------------------------------------------
     if st.session_state['analysis_result']:
+        # 어떤 모델이 일했는지 살짝 보여주기
+        if st.session_state['used_model']:
+            st.toast(f"분석 완료! ({st.session_state['used_model']} 사용됨)", icon="🤖")
+
         full_text = st.session_state['analysis_result']
         
         parts = {
@@ -391,11 +405,11 @@ if menu == "📸 문제 풀기":
         if st.button("🔄 쌍둥이 문제 추가 생성"):
             with st.spinner("추가 문제 생성 중..."):
                 try:
-                    model = genai.GenerativeModel(MODEL_NAME)
                     extra_prompt = f"쌍둥이 문제 1개 더. 과목:{selected_subject}. 수식은 반드시 $...$ 사용. 정답은 ===해설=== 뒤에."
-                    res = model.generate_content([extra_prompt, st.session_state['gemini_image']])
+                    # 🔥 추가 생성도 자동 우회 함수 사용
+                    result_text, _ = generate_content_with_fallback(extra_prompt, st.session_state['gemini_image'])
                     
-                    p_text = res.text
+                    p_text = result_text
                     p_prob = ""
                     p_ans = ""
                     if "===해설===" in p_text:
@@ -454,4 +468,3 @@ elif menu == "📒 내 오답 노트":
                             st.rerun()
         else: st.info("오답노트가 없습니다.")
     else: st.warning("데이터 로딩 실패")
-
