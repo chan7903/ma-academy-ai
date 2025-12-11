@@ -13,12 +13,14 @@ import matplotlib.font_manager as fm
 import os
 import time
 import itertools
+import re # 정규표현식 (텍스트 청소용)
 
 # ----------------------------------------------------------
 # [1] 기본 설정
 # ----------------------------------------------------------
 st.set_page_config(page_title="MA학원 AI 오답 도우미", page_icon="🏫", layout="centered")
 
+# 모델 우선순위 (3중 우회)
 MODELS_TO_TRY = [
     "gemini-2.5-flash",
     "gemini-2.0-flash",
@@ -28,6 +30,7 @@ MODELS_TO_TRY = [
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
 
 try:
+    # API 키 4개 로테이션
     API_KEYS = [
         st.secrets["GOOGLE_API_KEY"],
         st.secrets.get("GOOGLE_API_KEY_2", st.secrets["GOOGLE_API_KEY"]),
@@ -39,6 +42,7 @@ except:
     st.error("설정 오류: Secrets 키 확인 필요")
     st.stop()
 
+# 키 인덱스 기억 (새로고침 방지)
 if 'key_index' not in st.session_state:
     st.session_state['key_index'] = 0
 
@@ -133,21 +137,22 @@ def load_students_from_sheet():
         return pd.DataFrame(sheet.get_all_records())
     except: return None
 
-# 🔥 [수정] 1차 시도용 (그대로 내보냄)
+# 🔥 [수정] 이미지 렌더링용 텍스트 정제 함수들
 def text_for_plot_primary(text):
-    return text 
+    # 1차 시도: Matplotlib이 싫어하는 명령어만 살짝 변환
+    if not text: return ""
+    text = text.replace(r'\iff', '<=>').replace(r'\implies', '=>')
+    return text
 
-# 🔥 [추가] 비상용 (수식 기호 다 떼어냄)
 def text_for_plot_fallback(text):
-    return text.replace('$', '').replace('\\', '').replace('{', '').replace('}', '')
+    # 2차 시도: 모든 수식 기호 제거 (안전모드)
+    if not text: return ""
+    return re.sub(r'[\$\\\{\}]', '', text)
 
+# 🔥 [핵심 수정] 이미지 생성 함수 (안전장치 강화)
 def create_solution_image(original_image, concepts, solution):
     font_prop = get_korean_font_prop()
     
-    # 1차 시도: 수식 포함해서 그려보기
-    plot_concepts = text_for_plot_primary(concepts)
-    plot_solution = text_for_plot_primary(solution)
-
     w, h = original_image.size
     aspect = h / w
     fig_width = 10
@@ -164,35 +169,48 @@ def create_solution_image(original_image, concepts, solution):
     ax_text.axis('off')
     
     try:
-        # 1차 시도 (수식 포함 렌더링)
-        ax_text.text(0.02, 0.95, f"[단원 및 핵심 개념]\n{plot_concepts}", 
+        # --- 1차 시도: 원본 텍스트 시도 ---
+        safe_concepts = text_for_plot_primary(concepts)
+        safe_solution = text_for_plot_primary(solution)
+        
+        ax_text.text(0.02, 0.95, f"[단원 및 핵심 개념]\n{safe_concepts}", 
                         fontsize=15, color='purple', fontweight='bold', 
                         va='top', ha='left', wrap=True, fontproperties=font_prop)
         
-        line_count = plot_concepts.count('\n') + (len(plot_concepts) // 35) + 3
+        line_count = safe_concepts.count('\n') + (len(safe_concepts) // 35) + 3
         offset = line_count * 0.05 
         
-        ax_text.text(0.02, 0.95 - offset, f"[상세 풀이]\n{plot_solution}", 
+        ax_text.text(0.02, 0.95 - offset, f"[상세 풀이]\n{safe_solution}", 
                         fontsize=13, color='black', 
                         va='top', ha='left', wrap=True, fontproperties=font_prop)
+        
+        # 캔버스 그리기 시도 (여기서 에러나면 except로 감)
+        fig.canvas.draw()
+        
     except Exception as e:
-        # 🔥 [핵심 수정] 실패 시 비상용 텍스트(수식제거)로 재시도
-        print(f"이미지 렌더링 실패(1차), 비상용 텍스트로 재시도: {e}")
-        
-        safe_concepts = text_for_plot_fallback(concepts)
-        safe_solution = text_for_plot_fallback(solution)
-        
-        # 기존 텍스트 지우고 다시 쓰기 (겹침 방지)
+        # --- 2차 시도: 안전 모드 (수식 기호 제거) ---
+        print(f"이미지 렌더링 1차 실패, 안전모드 전환: {e}")
         ax_text.clear()
         ax_text.axis('off')
         
         try:
-            # 비상용 폰트(기본폰트)로 안전하게 출력 시도
-            ax_text.text(0.02, 0.95, f"[Concept (Safe Mode)]\n{safe_concepts}", fontsize=15, color='purple', va='top', ha='left', wrap=True)
-            ax_text.text(0.02, 0.5, f"[Solution (Safe Mode)]\n{safe_solution}", fontsize=13, color='black', va='top', ha='left', wrap=True)
+            fallback_concepts = text_for_plot_fallback(concepts)
+            fallback_solution = text_for_plot_fallback(solution)
+            
+            error_note = "(수식 렌더링 오류로 텍스트 모드로 표시합니다)"
+            
+            ax_text.text(0.02, 0.95, f"[단원 및 핵심 개념] {error_note}\n{fallback_concepts}", 
+                            fontsize=15, color='purple', fontweight='bold',
+                            va='top', ha='left', wrap=True, fontproperties=font_prop)
+            
+            line_count = fallback_concepts.count('\n') + (len(fallback_concepts) // 35) + 3
+            offset = line_count * 0.05
+            
+            ax_text.text(0.02, 0.95 - offset, f"[상세 풀이]\n{fallback_solution}", 
+                            fontsize=13, color='black', 
+                            va='top', ha='left', wrap=True, fontproperties=font_prop)
         except:
-             print("비상용 이미지 렌더링도 실패")
-
+            pass # 정말 안되면 빈 텍스트라도 나감
 
     buf = io.BytesIO()
     plt.savefig(buf, format='jpg', bbox_inches='tight', pad_inches=0.2)
@@ -200,7 +218,7 @@ def create_solution_image(original_image, concepts, solution):
     plt.close(fig)
     return Image.open(buf)
 
-def generate_content_with_rotation(prompt, image=None):
+def generate_content_with_fallback(prompt, image=None):
     last_error = None
     for model_name in MODELS_TO_TRY:
         try:
@@ -279,7 +297,6 @@ with st.sidebar:
 
 if menu == "📸 문제 풀기":
     st.markdown("### 🏫 MA학원 AI 오답 도우미")
-    
     st.markdown("##### 1. 과목을 먼저 선택하세요 (필수!)")
     
     subject_options = [
@@ -332,21 +349,18 @@ if menu == "📸 문제 풀기":
                 st.session_state['gemini_image'] = resized_image
                 
                 try:
+                    # 🔥 [수정] 프롬프트: 이미지용은 텍스트 위주, 상세풀이는 LaTeX 위주
                     prompt = f"""
                     당신은 대치동 20년 경력 수학 강사입니다. 과목:{selected_subject}, 말투:{tone}
                     
-                    [지시사항]
-                    1. 텍스트 수식은 **반드시 LaTeX($) 형식**을 사용하세요.
-                    2. 풀이는 번호를 매겨 단계별로 작성하세요.
-                    
-                    [출력 형식 구분자]
+                    [출력 형식 구분자 - 철저 준수]
                     ===이미지용_개념===
-                    (사진에 적을 개념 2줄 요약. LaTeX 사용하여 $x^2$ 처럼 표현)
+                    (사진에 적을 요약. **LaTeX($) 사용 금지**. 수식은 'y = x제곱' 처럼 텍스트로만 표현)
                     ===이미지용_풀이===
-                    (사진에 적을 풀이. 줄글 위주. LaTeX 사용하여 수식 표현. 예: $y=2x$ 대입)
+                    (사진에 적을 풀이. 줄글 위주. **LaTeX($) 사용 금지**. 수식은 텍스트로만 표현)
                     
                     ===상세풀이_텍스트===
-                    (화면 하단용 상세 풀이. LaTeX 적극 사용)
+                    (화면 하단용 상세 풀이. 여기는 **LaTeX($) 적극 사용**해서 수식 예쁘게 작성)
                     
                     ===쌍둥이문제===
                     (LaTeX 사용)
@@ -354,7 +368,7 @@ if menu == "📸 문제 풀기":
                     (LaTeX 사용)
                     """
                     
-                    result_text, used_model = generate_content_with_rotation(prompt, st.session_state['gemini_image'])
+                    result_text, used_model = generate_content_with_fallback(prompt, st.session_state['gemini_image'])
                     
                     st.session_state['analysis_result'] = result_text
                     st.session_state['used_model'] = used_model
@@ -387,7 +401,7 @@ if menu == "📸 문제 풀기":
                     st.rerun()
                     
                 except Exception as e:
-                    st.error(f"모든 AI 모델이 바쁩니다. 잠시 후 다시 시도해주세요. ({e})")
+                    st.error(f"분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요. ({e})")
 
     if st.session_state['analysis_result']:
         if st.session_state['used_model']:
@@ -439,8 +453,7 @@ if menu == "📸 문제 풀기":
                 try:
                     extra_prompt = f"쌍둥이 문제 1개 더. 과목:{selected_subject}. 수식은 반드시 $...$ 사용. 정답은 ===해설=== 뒤에."
                     
-                    # 🔥 추가 생성도 로테이션 적용
-                    result_text, used_model = generate_content_with_rotation(extra_prompt, st.session_state['gemini_image'])
+                    result_text, used_model = generate_content_with_fallback(extra_prompt, st.session_state['gemini_image'])
                     st.toast(f"생성 모델: {used_model}", icon="🤖")
                     
                     p_text = result_text
