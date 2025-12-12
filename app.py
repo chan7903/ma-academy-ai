@@ -10,17 +10,17 @@ import requests
 import base64
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
+import matplotlib.patches as patches # 포스트잇 디자인용
 import os
 import time
 import itertools
-import re # 정규표현식 (텍스트 청소용)
+import re
 
 # ----------------------------------------------------------
 # [1] 기본 설정
 # ----------------------------------------------------------
 st.set_page_config(page_title="MA학원 AI 오답 도우미", page_icon="🏫", layout="centered")
 
-# 모델 우선순위 (3중 우회)
 MODELS_TO_TRY = [
     "gemini-2.5-flash",
     "gemini-2.0-flash",
@@ -30,7 +30,6 @@ MODELS_TO_TRY = [
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
 
 try:
-    # API 키 4개 로테이션
     API_KEYS = [
         st.secrets["GOOGLE_API_KEY"],
         st.secrets.get("GOOGLE_API_KEY_2", st.secrets["GOOGLE_API_KEY"]),
@@ -42,7 +41,6 @@ except:
     st.error("설정 오류: Secrets 키 확인 필요")
     st.stop()
 
-# 키 인덱스 기억 (새로고침 방지)
 if 'key_index' not in st.session_state:
     st.session_state['key_index'] = 0
 
@@ -137,83 +135,86 @@ def load_students_from_sheet():
         return pd.DataFrame(sheet.get_all_records())
     except: return None
 
-# 🔥 [수정] 이미지 렌더링용 텍스트 정제 함수들
-def text_for_plot_primary(text):
-    # 1차 시도: Matplotlib이 싫어하는 명령어만 살짝 변환
+# 텍스트 정제 (이미지용)
+def clean_text_for_plot_safe(text):
     if not text: return ""
+    # Matplotlib이 싫어하는 명령어 제거 및 변환
     text = text.replace(r'\iff', '<=>').replace(r'\implies', '=>')
+    # $ 기호는 살려두되, 렌더링에 치명적인 것들만 처리
     return text
 
+# 비상용 텍스트 정제
 def text_for_plot_fallback(text):
-    # 2차 시도: 모든 수식 기호 제거 (안전모드)
     if not text: return ""
     return re.sub(r'[\$\\\{\}]', '', text)
 
-# 🔥 [핵심 수정] 이미지 생성 함수 (안전장치 강화)
-def create_solution_image(original_image, concepts, solution):
+# 🔥 [핵심 디자인] 포스트잇 스타일 이미지 생성
+def create_solution_image(original_image, hints):
     font_prop = get_korean_font_prop()
     
     w, h = original_image.size
     aspect = h / w
+    
+    # 하단 포스트잇 영역 비율 설정 (이미지 높이의 30% 정도)
+    note_height_ratio = 0.4 
     fig_width = 10
-    fig_height = fig_width * aspect + 8
+    fig_height = fig_width * (aspect + note_height_ratio)
     
     fig = plt.figure(figsize=(fig_width, fig_height))
-    gs = fig.add_gridspec(2, 1, height_ratios=[aspect, 0.8])
+    # 여백 없이 꽉 채우기
+    gs = fig.add_gridspec(2, 1, height_ratios=[aspect, note_height_ratio], hspace=0)
     
+    # 1. 원본 문제 이미지
     ax_img = fig.add_subplot(gs[0])
     ax_img.imshow(original_image)
     ax_img.axis('off')
     
-    ax_text = fig.add_subplot(gs[1])
-    ax_text.axis('off')
+    # 2. 하단 포스트잇 영역
+    ax_note = fig.add_subplot(gs[1])
+    ax_note.axis('off')
     
+    # 배경색 (연한 노란색 - 포스트잇 느낌)
+    ax_note.set_facecolor('#FFFACD') 
+    rect = patches.Rectangle((0,0), 1, 1, transform=ax_note.transAxes, color='#FFFACD', zorder=0)
+    ax_note.add_patch(rect)
+    
+    # 상단 구분선 (점선)
+    ax_note.plot([0, 1], [1, 1], transform=ax_note.transAxes, color='gray', linestyle='--', linewidth=1)
+
     try:
-        # --- 1차 시도: 원본 텍스트 시도 ---
-        safe_concepts = text_for_plot_primary(concepts)
-        safe_solution = text_for_plot_primary(solution)
+        # 1차 시도
+        safe_hints = clean_text_for_plot_safe(hints)
         
-        ax_text.text(0.02, 0.95, f"[단원 및 핵심 개념]\n{safe_concepts}", 
-                        fontsize=15, color='purple', fontweight='bold', 
-                        va='top', ha='left', wrap=True, fontproperties=font_prop)
+        # 제목
+        ax_note.text(0.05, 0.85, "💡 1타 강사의 핵심 Point", 
+                     fontsize=16, color='#FF4500', fontweight='bold', 
+                     va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
         
-        line_count = safe_concepts.count('\n') + (len(safe_concepts) // 35) + 3
-        offset = line_count * 0.05 
+        # 내용
+        ax_note.text(0.05, 0.70, safe_hints, 
+                     fontsize=14, color='#333333', 
+                     va='top', ha='left', transform=ax_note.transAxes, wrap=True, fontproperties=font_prop)
         
-        ax_text.text(0.02, 0.95 - offset, f"[상세 풀이]\n{safe_solution}", 
-                        fontsize=13, color='black', 
-                        va='top', ha='left', wrap=True, fontproperties=font_prop)
-        
-        # 캔버스 그리기 시도 (여기서 에러나면 except로 감)
         fig.canvas.draw()
         
     except Exception as e:
-        # --- 2차 시도: 안전 모드 (수식 기호 제거) ---
-        print(f"이미지 렌더링 1차 실패, 안전모드 전환: {e}")
-        ax_text.clear()
-        ax_text.axis('off')
+        # 2차 시도 (안전모드)
+        ax_note.clear()
+        ax_note.axis('off')
+        ax_note.add_patch(rect) # 배경 다시
         
-        try:
-            fallback_concepts = text_for_plot_fallback(concepts)
-            fallback_solution = text_for_plot_fallback(solution)
-            
-            error_note = "(수식 렌더링 오류로 텍스트 모드로 표시합니다)"
-            
-            ax_text.text(0.02, 0.95, f"[단원 및 핵심 개념] {error_note}\n{fallback_concepts}", 
-                            fontsize=15, color='purple', fontweight='bold',
-                            va='top', ha='left', wrap=True, fontproperties=font_prop)
-            
-            line_count = fallback_concepts.count('\n') + (len(fallback_concepts) // 35) + 3
-            offset = line_count * 0.05
-            
-            ax_text.text(0.02, 0.95 - offset, f"[상세 풀이]\n{fallback_solution}", 
-                            fontsize=13, color='black', 
-                            va='top', ha='left', wrap=True, fontproperties=font_prop)
-        except:
-            pass # 정말 안되면 빈 텍스트라도 나감
+        fallback_hints = text_for_plot_fallback(hints)
+        
+        ax_note.text(0.05, 0.85, "💡 1타 강사의 핵심 Point", 
+                     fontsize=16, color='#FF4500', fontweight='bold', 
+                     va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
+        
+        ax_note.text(0.05, 0.70, fallback_hints, 
+                     fontsize=14, color='#333333', 
+                     va='top', ha='left', transform=ax_note.transAxes, wrap=True, fontproperties=font_prop)
 
     buf = io.BytesIO()
-    plt.savefig(buf, format='jpg', bbox_inches='tight', pad_inches=0.2)
+    plt.savefig(buf, format='jpg', bbox_inches='tight', pad_inches=0)
     buf.seek(0)
     plt.close(fig)
     return Image.open(buf)
@@ -245,7 +246,7 @@ def generate_content_with_fallback(prompt, image=None):
     raise last_error
 
 # ----------------------------------------------------------
-# [3] 로그인
+# [3] 로그인 & 세션
 # ----------------------------------------------------------
 if 'is_logged_in' not in st.session_state:
     st.session_state['is_logged_in'] = False
@@ -349,18 +350,22 @@ if menu == "📸 문제 풀기":
                 st.session_state['gemini_image'] = resized_image
                 
                 try:
-                    # 🔥 [수정] 프롬프트: 이미지용은 텍스트 위주, 상세풀이는 LaTeX 위주
+                    # 🔥 [수정] 프롬프트 분리 전략
                     prompt = f"""
                     당신은 대치동 20년 경력 수학 강사입니다. 과목:{selected_subject}, 말투:{tone}
                     
-                    [출력 형식 구분자 - 철저 준수]
-                    ===이미지용_개념===
-                    (사진에 적을 요약. **LaTeX($) 사용 금지**. 수식은 'y = x제곱' 처럼 텍스트로만 표현)
-                    ===이미지용_풀이===
-                    (사진에 적을 풀이. 줄글 위주. **LaTeX($) 사용 금지**. 수식은 텍스트로만 표현)
+                    [필수 지시사항]
+                    1. **이미지용 힌트**에는 복잡한 LaTeX를 절대 쓰지 마세요. 
+                       - 예: "x^2" (O), "$x^2$" (O), "\\frac{{a}}{{b}}" (X, 절대 금지)
+                       - 핵심 공식과 힌트만 간단히 적으세요.
+                    2. **상세풀이 텍스트**에는 완벽한 LaTeX($...$)를 사용하여 가독성 좋게 적으세요.
+                    
+                    [출력 형식 구분자]
+                    ===이미지용_힌트===
+                    (단원명 / 핵심 공식 / 한 줄 힌트. 텍스트 위주로 작성)
                     
                     ===상세풀이_텍스트===
-                    (화면 하단용 상세 풀이. 여기는 **LaTeX($) 적극 사용**해서 수식 예쁘게 작성)
+                    (화면 하단용 상세 풀이. LaTeX 적극 사용)
                     
                     ===쌍둥이문제===
                     (LaTeX 사용)
@@ -373,15 +378,15 @@ if menu == "📸 문제 풀기":
                     st.session_state['analysis_result'] = result_text
                     st.session_state['used_model'] = used_model
                     
-                    img_concept = "요약"
-                    img_solution = "풀이"
+                    # 파싱
+                    img_hint = "힌트 없음"
                     
-                    if "===이미지용_개념===" in result_text:
-                        parts = result_text.split("===이미지용_개념===")[1]
-                        img_concept = parts.split("===이미지용_풀이===")[0].strip()
-                        img_solution = parts.split("===이미지용_풀이===")[1].split("===상세풀이_텍스트===")[0].strip()
+                    if "===이미지용_힌트===" in result_text:
+                        parts = result_text.split("===이미지용_힌트===")[1]
+                        img_hint = parts.split("===상세풀이_텍스트===")[0].strip()
                     
-                    final_image = create_solution_image(st.session_state['gemini_image'], img_concept, img_solution)
+                    # 🔥 포스트잇 이미지 생성
+                    final_image = create_solution_image(st.session_state['gemini_image'], img_hint)
                     st.session_state['solution_image'] = final_image 
                     
                     img_byte_arr = io.BytesIO()
@@ -392,7 +397,7 @@ if menu == "📸 문제 풀기":
                     uploaded_link = upload_to_imgbb(img_bytes)
                     if uploaded_link: link = uploaded_link
                     
-                    unit_name = img_concept.split("\n")[0][:20]
+                    unit_name = img_hint.split("\n")[0][:20]
                     save_result_to_sheet(
                         st.session_state['user_name'], selected_subject, unit_name, 
                         result_text, link
@@ -401,7 +406,7 @@ if menu == "📸 문제 풀기":
                     st.rerun()
                     
                 except Exception as e:
-                    st.error(f"분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요. ({e})")
+                    st.error(f"분석 중 오류가 발생했습니다: {e}")
 
     if st.session_state['analysis_result']:
         if st.session_state['used_model']:
@@ -418,16 +423,16 @@ if menu == "📸 문제 풀기":
         if "===상세풀이_텍스트===" in full_text:
             temp = full_text.split("===상세풀이_텍스트===")[1]
             parts["full_solution"] = temp.split("===쌍둥이문제===")[0].strip()
-            
             temp = temp.split("===쌍둥이문제===")[1]
             parts["twin_prob"] = temp.split("===정답및해설===")[0].strip()
             parts["twin_ans"] = temp.split("===정답및해설===")[1].strip()
 
         st.markdown("---")
         
+        # 1. 상단: 포스트잇 스타일 이미지
         if st.session_state['solution_image']:
-            st.markdown("### 📘 오답 분석 결과 (선생님 필기)")
-            st.image(st.session_state['solution_image'], caption="AI 선생님의 첨삭 노트", use_container_width=True)
+            st.markdown("### 📘 오답 분석 결과")
+            st.image(st.session_state['solution_image'], caption="AI 선생님의 핵심 힌트", use_container_width=True)
             
             img_byte_arr = io.BytesIO()
             st.session_state['solution_image'].save(img_byte_arr, format='JPEG')
@@ -438,8 +443,9 @@ if menu == "📸 문제 풀기":
                 mime="image/jpeg"
             )
             
-        with st.expander("📜 상세 풀이 텍스트로 보기 (수식 포함)", expanded=True):
-            st.write(parts["full_solution"])
+        # 2. 하단: 상세 풀이 (Expander)
+        with st.expander("📖 상세 풀이 펼쳐보기 (정석 해설)", expanded=True):
+            st.markdown(parts["full_solution"])
 
         st.markdown("---")
         st.markdown("### 📝 쌍둥이 문제")
@@ -452,7 +458,6 @@ if menu == "📸 문제 풀기":
             with st.spinner("추가 문제 생성 중..."):
                 try:
                     extra_prompt = f"쌍둥이 문제 1개 더. 과목:{selected_subject}. 수식은 반드시 $...$ 사용. 정답은 ===해설=== 뒤에."
-                    
                     result_text, used_model = generate_content_with_fallback(extra_prompt, st.session_state['gemini_image'])
                     st.toast(f"생성 모델: {used_model}", icon="🤖")
                     
