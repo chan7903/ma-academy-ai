@@ -179,7 +179,7 @@ def create_solution_image(original_image, hints):
         
         # 🔥 폰트 사이즈 키움 (손글씨는 좀 작아보여서 크게 해야 예쁨)
         # 제목
-        ax_note.text(0.05, 0.85, "💡 1타 강사의 핵심 Point", 
+        ax_note.text(0.05, 0.85, "💡 핵심 Point", 
                      fontsize=24, color='#FF4500', fontweight='bold', # 16 -> 24
                      va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
         
@@ -197,7 +197,7 @@ def create_solution_image(original_image, hints):
         
         fallback_hints = text_for_plot_fallback(hints)
         
-        ax_note.text(0.05, 0.85, "💡 1타 강사의 핵심 Point", 
+        ax_note.text(0.05, 0.85, "💡 핵심 Point", 
                      fontsize=24, color='#FF4500', fontweight='bold', 
                      va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
         
@@ -335,8 +335,8 @@ if menu == "📸 문제 풀기":
             st.error("이미지 오류")
             st.stop()
 
-        if st.button("🔍 1타 강사 분석 시작", type="primary"):
-            with st.spinner("1타 강사가 문제를 분석하고 필기하는 중..."):
+        if st.button("🔍 분석 시작", type="primary"):
+            with st.spinner("문제를 분석하고 필기하는 중..."):
                 
                 resized_image = resize_image(raw_image)
                 st.session_state['gemini_image'] = resized_image
@@ -507,3 +507,4 @@ elif menu == "📒 내 오답 노트":
                             st.rerun()
         else: st.info("오답노트가 없습니다.")
     else: st.warning("데이터 로딩 실패")
+
