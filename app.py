@@ -10,7 +10,7 @@ import requests
 import base64
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
-import matplotlib.patches as patches # 포스트잇 디자인용
+import matplotlib.patches as patches
 import os
 import time
 import itertools
@@ -57,11 +57,13 @@ def get_sheet_client():
         return client
     except: return None
 
+# 🔥 [추가] 손글씨 폰트(나눔손글씨 펜) 다운로드 함수
 @st.cache_resource
-def get_korean_font_prop():
-    font_file = "NanumGothic.ttf"
+def get_handwriting_font_prop():
+    font_file = "NanumPen.ttf"
     if not os.path.exists(font_file):
-        url = "https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf"
+        # 구글 폰트에서 나눔손글씨 펜(Nanum Pen Script) 다운로드
+        url = "https://github.com/google/fonts/raw/main/ofl/nanumpenscript/NanumPenScript-Regular.ttf"
         try:
             r = requests.get(url)
             with open(font_file, "wb") as f:
@@ -135,82 +137,72 @@ def load_students_from_sheet():
         return pd.DataFrame(sheet.get_all_records())
     except: return None
 
-# 텍스트 정제 (이미지용)
 def clean_text_for_plot_safe(text):
     if not text: return ""
-    # Matplotlib이 싫어하는 명령어 제거 및 변환
     text = text.replace(r'\iff', '<=>').replace(r'\implies', '=>')
-    # $ 기호는 살려두되, 렌더링에 치명적인 것들만 처리
     return text
 
-# 비상용 텍스트 정제
 def text_for_plot_fallback(text):
     if not text: return ""
     return re.sub(r'[\$\\\{\}]', '', text)
 
-# 🔥 [핵심 디자인] 포스트잇 스타일 이미지 생성
+# 🔥 [핵심 수정] 폰트 변경 (손글씨 적용)
 def create_solution_image(original_image, hints):
-    font_prop = get_korean_font_prop()
+    # 여기서 '손글씨 폰트'를 불러옵니다!
+    font_prop = get_handwriting_font_prop()
     
     w, h = original_image.size
     aspect = h / w
-    
-    # 하단 포스트잇 영역 비율 설정 (이미지 높이의 30% 정도)
     note_height_ratio = 0.4 
     fig_width = 10
     fig_height = fig_width * (aspect + note_height_ratio)
     
     fig = plt.figure(figsize=(fig_width, fig_height))
-    # 여백 없이 꽉 채우기
     gs = fig.add_gridspec(2, 1, height_ratios=[aspect, note_height_ratio], hspace=0)
     
-    # 1. 원본 문제 이미지
     ax_img = fig.add_subplot(gs[0])
     ax_img.imshow(original_image)
     ax_img.axis('off')
     
-    # 2. 하단 포스트잇 영역
     ax_note = fig.add_subplot(gs[1])
     ax_note.axis('off')
     
-    # 배경색 (연한 노란색 - 포스트잇 느낌)
+    # 배경색 (연한 노란색)
     ax_note.set_facecolor('#FFFACD') 
     rect = patches.Rectangle((0,0), 1, 1, transform=ax_note.transAxes, color='#FFFACD', zorder=0)
     ax_note.add_patch(rect)
     
-    # 상단 구분선 (점선)
     ax_note.plot([0, 1], [1, 1], transform=ax_note.transAxes, color='gray', linestyle='--', linewidth=1)
 
     try:
-        # 1차 시도
         safe_hints = clean_text_for_plot_safe(hints)
         
+        # 🔥 폰트 사이즈 키움 (손글씨는 좀 작아보여서 크게 해야 예쁨)
         # 제목
         ax_note.text(0.05, 0.85, "💡 1타 강사의 핵심 Point", 
-                     fontsize=16, color='#FF4500', fontweight='bold', 
+                     fontsize=24, color='#FF4500', fontweight='bold', # 16 -> 24
                      va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
         
         # 내용
         ax_note.text(0.05, 0.70, safe_hints, 
-                     fontsize=14, color='#333333', 
+                     fontsize=20, color='#333333', # 14 -> 20
                      va='top', ha='left', transform=ax_note.transAxes, wrap=True, fontproperties=font_prop)
         
         fig.canvas.draw()
         
     except Exception as e:
-        # 2차 시도 (안전모드)
         ax_note.clear()
         ax_note.axis('off')
-        ax_note.add_patch(rect) # 배경 다시
+        ax_note.add_patch(rect)
         
         fallback_hints = text_for_plot_fallback(hints)
         
         ax_note.text(0.05, 0.85, "💡 1타 강사의 핵심 Point", 
-                     fontsize=16, color='#FF4500', fontweight='bold', 
+                     fontsize=24, color='#FF4500', fontweight='bold', 
                      va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
         
         ax_note.text(0.05, 0.70, fallback_hints, 
-                     fontsize=14, color='#333333', 
+                     fontsize=20, color='#333333', 
                      va='top', ha='left', transform=ax_note.transAxes, wrap=True, fontproperties=font_prop)
 
     buf = io.BytesIO()
@@ -350,7 +342,6 @@ if menu == "📸 문제 풀기":
                 st.session_state['gemini_image'] = resized_image
                 
                 try:
-                    # 🔥 [수정] 프롬프트 분리 전략
                     prompt = f"""
                     당신은 대치동 20년 경력 수학 강사입니다. 과목:{selected_subject}, 말투:{tone}
                     
@@ -378,14 +369,12 @@ if menu == "📸 문제 풀기":
                     st.session_state['analysis_result'] = result_text
                     st.session_state['used_model'] = used_model
                     
-                    # 파싱
                     img_hint = "힌트 없음"
                     
                     if "===이미지용_힌트===" in result_text:
                         parts = result_text.split("===이미지용_힌트===")[1]
                         img_hint = parts.split("===상세풀이_텍스트===")[0].strip()
                     
-                    # 🔥 포스트잇 이미지 생성
                     final_image = create_solution_image(st.session_state['gemini_image'], img_hint)
                     st.session_state['solution_image'] = final_image 
                     
@@ -429,7 +418,6 @@ if menu == "📸 문제 풀기":
 
         st.markdown("---")
         
-        # 1. 상단: 포스트잇 스타일 이미지
         if st.session_state['solution_image']:
             st.markdown("### 📘 오답 분석 결과")
             st.image(st.session_state['solution_image'], caption="AI 선생님의 핵심 힌트", use_container_width=True)
@@ -443,7 +431,6 @@ if menu == "📸 문제 풀기":
                 mime="image/jpeg"
             )
             
-        # 2. 하단: 상세 풀이 (Expander)
         with st.expander("📖 상세 풀이 펼쳐보기 (정석 해설)", expanded=True):
             st.markdown(parts["full_solution"])
 
