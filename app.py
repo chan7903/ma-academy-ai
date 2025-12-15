@@ -57,12 +57,10 @@ def get_sheet_client():
         return client
     except: return None
 
-# 🔥 [추가] 손글씨 폰트(나눔손글씨 펜) 다운로드 함수
 @st.cache_resource
 def get_handwriting_font_prop():
     font_file = "NanumPen.ttf"
     if not os.path.exists(font_file):
-        # 구글 폰트에서 나눔손글씨 펜(Nanum Pen Script) 다운로드
         url = "https://github.com/google/fonts/raw/main/ofl/nanumpenscript/NanumPenScript-Regular.ttf"
         try:
             r = requests.get(url)
@@ -146,9 +144,7 @@ def text_for_plot_fallback(text):
     if not text: return ""
     return re.sub(r'[\$\\\{\}]', '', text)
 
-# 🔥 [핵심 수정] 폰트 변경 (손글씨 적용)
 def create_solution_image(original_image, hints):
-    # 여기서 '손글씨 폰트'를 불러옵니다!
     font_prop = get_handwriting_font_prop()
     
     w, h = original_image.size
@@ -167,7 +163,6 @@ def create_solution_image(original_image, hints):
     ax_note = fig.add_subplot(gs[1])
     ax_note.axis('off')
     
-    # 배경색 (연한 노란색)
     ax_note.set_facecolor('#FFFACD') 
     rect = patches.Rectangle((0,0), 1, 1, transform=ax_note.transAxes, color='#FFFACD', zorder=0)
     ax_note.add_patch(rect)
@@ -177,15 +172,12 @@ def create_solution_image(original_image, hints):
     try:
         safe_hints = clean_text_for_plot_safe(hints)
         
-        # 🔥 폰트 사이즈 키움 (손글씨는 좀 작아보여서 크게 해야 예쁨)
-        # 제목
-        ax_note.text(0.05, 0.85, "💡 핵심 Point", 
-                     fontsize=24, color='#FF4500', fontweight='bold', # 16 -> 24
+        ax_note.text(0.05, 0.85, "💡 1타 강사의 핵심 Point", 
+                     fontsize=24, color='#FF4500', fontweight='bold', 
                      va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
         
-        # 내용
         ax_note.text(0.05, 0.70, safe_hints, 
-                     fontsize=20, color='#333333', # 14 -> 20
+                     fontsize=20, color='#333333', 
                      va='top', ha='left', transform=ax_note.transAxes, wrap=True, fontproperties=font_prop)
         
         fig.canvas.draw()
@@ -197,7 +189,7 @@ def create_solution_image(original_image, hints):
         
         fallback_hints = text_for_plot_fallback(hints)
         
-        ax_note.text(0.05, 0.85, "💡 핵심 Point", 
+        ax_note.text(0.05, 0.85, "💡 1타 강사의 핵심 Point", 
                      fontsize=24, color='#FF4500', fontweight='bold', 
                      va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
         
@@ -335,28 +327,33 @@ if menu == "📸 문제 풀기":
             st.error("이미지 오류")
             st.stop()
 
-        if st.button("🔍 분석 시작", type="primary"):
-            with st.spinner("문제를 분석하고 필기하는 중..."):
+        if st.button("🔍 1타 강사 분석 시작", type="primary"):
+            with st.spinner("1타 강사가 문제를 분석하고 필기하는 중..."):
                 
                 resized_image = resize_image(raw_image)
                 st.session_state['gemini_image'] = resized_image
                 
                 try:
+                    # 🔥 [프롬프트 대폭 수정] 간결한 정석 풀이 + 숏컷 요청
                     prompt = f"""
                     당신은 대치동 20년 경력 수학 강사입니다. 과목:{selected_subject}, 말투:{tone}
                     
                     [필수 지시사항]
-                    1. **이미지용 힌트**에는 복잡한 LaTeX를 절대 쓰지 마세요. 
-                       - 예: "x^2" (O), "$x^2$" (O), "\\frac{{a}}{{b}}" (X, 절대 금지)
-                       - 핵심 공식과 힌트만 간단히 적으세요.
-                    2. **상세풀이 텍스트**에는 완벽한 LaTeX($...$)를 사용하여 가독성 좋게 적으세요.
+                    1. 모든 텍스트 수식은 **반드시 LaTeX($) 형식**을 사용하고, 가독성을 최우선으로 하세요.
+                    2. **상세 풀이**는 다음 세 가지 섹션으로 나누어 작성하세요.
+                       - **[1] 정석 풀이:** 가장 간결하고 효율적인 단계별 풀이(과잉 친절 금지). 논리 흐름은 `→` 또는 `∴`을 활용하세요.
+                       - **[2] 🍯 숏컷 풀이:** (가능하다면) 문제의 의표를 찌르는, 계산을 줄이는 기발한 풀이법이나 팁을 제시하세요. 존재하지 않으면 '없음'으로 간단히 적으세요.
                     
                     [출력 형식 구분자]
                     ===이미지용_힌트===
-                    (단원명 / 핵심 공식 / 한 줄 힌트. 텍스트 위주로 작성)
+                    (단원명 / 핵심 공식 / 한 줄 힌트. 텍스트 위주로 3줄 이내로 압축 작성)
                     
                     ===상세풀이_텍스트===
-                    (화면 하단용 상세 풀이. LaTeX 적극 사용)
+                    [1] 정석 풀이 (The Direct Path)
+                    (간결한 단계별 풀이. LaTeX 사용)
+                    
+                    [2] 🍯 숏컷 풀이 (The Genius Shortcut)
+                    (존재하면 제시. LaTeX 사용)
                     
                     ===쌍둥이문제===
                     (LaTeX 사용)
@@ -432,7 +429,7 @@ if menu == "📸 문제 풀기":
             )
             
         with st.expander("📖 상세 풀이 펼쳐보기 (정석 해설)", expanded=True):
-            st.markdown(parts["full_solution"])
+            st.markdown(parts["full_solution"]) # [1] 정석 풀이와 [2] 숏컷 풀이가 모두 들어있음
 
         st.markdown("---")
         st.markdown("### 📝 쌍둥이 문제")
@@ -507,4 +504,3 @@ elif menu == "📒 내 오답 노트":
                             st.rerun()
         else: st.info("오답노트가 없습니다.")
     else: st.warning("데이터 로딩 실패")
-
