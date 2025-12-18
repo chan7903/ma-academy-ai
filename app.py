@@ -136,9 +136,12 @@ def load_students_from_sheet():
         return pd.DataFrame(sheet.get_all_records())
     except: return None
 
+# 텍스트 정제 (이미지 오류 방지용)
 def clean_text_for_plot_safe(text):
     if not text: return ""
-    text = text.replace(r'\iff', '<=>').replace(r'\implies', '=>')
+    # LaTeX 명령어 중 Matplotlib이 싫어하는 것들 변환
+    text = text.replace(r'\iff', '⇔').replace(r'\implies', '⇒')
+    text = text.replace(r'\le', '≤').replace(r'\ge', '≥')
     return text
 
 def text_for_plot_fallback(text):
@@ -174,7 +177,9 @@ def create_solution_image(original_image, hints):
         y_pos = 0.72
         for line in lines:
             if line.strip():
-                ax_note.text(0.05, y_pos, f"• {line.strip()}", fontsize=21, color='#333333', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
+                # 폰트 깨짐 방지를 위해 너무 긴 줄은 자름
+                display_line = line.strip()[:40] + "..." if len(line.strip()) > 40 else line.strip()
+                ax_note.text(0.05, y_pos, f"• {display_line}", fontsize=21, color='#333333', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
                 y_pos -= 0.12
         fig.canvas.draw()
     except:
@@ -271,7 +276,8 @@ if menu == "📸 문제 풀기":
         st.info("👆 과목 선택 후 시작해주세요.")
         st.stop()
 
-    tone = "친절하게" if any(x in selected_subject for x in ["초", "중1", "중2"]) else "간결하고 수식 위주로"
+    # 프롬프트 톤 설정 (고등부 위주로 간결하게)
+    tone = "핵심만 짚어주는 1타강사처럼"
 
     st.markdown("---")
     st.markdown("##### 2. 문제 업로드")
@@ -293,32 +299,37 @@ if menu == "📸 문제 풀기":
             with st.spinner("분석 중..."):
                 st.session_state['gemini_image'] = resize_image(raw_image)
                 try:
+                    # 🔥 [프롬프트 대폭 수정] 논리 위주 압축 지시
                     prompt = f"""
-                    당신은 대치동 수학 강사입니다. 과목:{selected_subject}, 말투:{tone}
-                    **반드시 아래 구분자를 정확히 포함하여 답변하세요.**
+                    당신은 대치동 1타 수학 강사입니다. 과목:{selected_subject}
+                    **단순 계산(전개, 이항, 소거 등) 과정은 생략**하고, '설계'와 '논리' 위주로 설명하세요.
                     
+                    [필수 지시사항]
+                    1. **이미지용_힌트**: LaTeX 절대 금지. '이항하면', '판별식 D>0' 처럼 한글과 기호(->)로만 작성. (오류 방지)
+                    2. **상세풀이**: 줄글 금지. **번호 매기기(1. 2. 3.)**로 구조화하세요.
+                    3. 수식은 줄바꿈($$)을 적극 활용하여 눈에 띄게 하세요.
+                    
+                    [출력 구분자 (정확히 준수)]
                     ===이미지용_힌트===
-                    (단원/공식/힌트 한 줄 형태로 3~4줄 줄바꿈 작성)
+                    (단원명\\n핵심 공식\\n결정적 힌트. 텍스트로만 3줄)
                     
                     ===상세풀이_텍스트===
-                    [1] 정석 풀이 (The Direct Path)
-                    (단계별로 줄바꿈을 하여 간결하게 작성)
+                    ### 📖 [1] 정석 풀이 (Logic Flow)
+                    (단순 계산 생략. '조건 -> 공식 -> 결과' 흐름으로 압축)
                     
-                    [2] 🍯 숏컷 풀이 (The Genius Shortcut)
-                    (기발한 풀이가 있다면 줄바꿈하여 작성, 없으면 '없음'으로 간단히 작성)
+                    ### 🍯 [2] 숏컷 풀이 (Genius Shortcut)
+                    (직관적 풀이나 빠른 계산법. 없으면 '없음')
                     
                     ===쌍둥이문제===
-                    (문제 내용)
-                    (LaTeX 사용, 줄바꿈 필수)
+                    (LaTeX 사용)
                     ===정답및해설===
-                    (LaTeX 사용, 단계별로 줄바꿈을 하여 간결하게 작성)
+                    (LaTeX 사용)
                     """
                     result_text, used_model = generate_content_with_fallback(prompt, st.session_state['gemini_image'])
                     st.session_state['analysis_result'] = result_text
                     st.session_state['used_model'] = used_model
                     
-                    # 🔥 [안전 파싱 로직] 구분자 유무 확인
-                    img_hint = "분석 실패"
+                    img_hint = "힌트 없음"
                     if "===이미지용_힌트===" in result_text and "===상세풀이_텍스트===" in result_text:
                         img_hint = result_text.split("===이미지용_힌트===")[1].split("===상세풀이_텍스트===")[0].strip()
                     
@@ -332,7 +343,6 @@ if menu == "📸 문제 풀기":
                 except Exception as e:
                     st.error(f"오류 발생: {e}")
 
-    # 🔥 [수정] IndexError 방어 파싱
     if st.session_state['analysis_result']:
         full_text = st.session_state['analysis_result']
         parts = {"sol": "풀이 분석 중..", "prob": "문제 생성 중..", "ans": "해설 생성 중.."}
@@ -348,15 +358,13 @@ if menu == "📸 문제 풀기":
                         parts["ans"] = temp.split("===정답및해설===")[1].strip()
                     else: parts["prob"] = temp
                 else: parts["sol"] = temp
-        except Exception as e:
-            st.warning("일부 내용을 파싱하는 데 실패했습니다. 원문으로 표시합니다.")
-            parts["sol"] = full_text
+        except: parts["sol"] = full_text
 
         st.markdown("---")
         if st.session_state['solution_image']:
             st.image(st.session_state['solution_image'], use_container_width=True)
             
-        with st.expander("📖 상세 풀이 (정석 & 숏컷)", expanded=True):
+        with st.expander("📖 논리 중심 해설 (계산 생략)", expanded=True):
             st.markdown(parts["sol"])
         st.markdown("### 📝 쌍둥이 문제")
         st.write(parts["prob"])
