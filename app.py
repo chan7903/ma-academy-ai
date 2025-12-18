@@ -172,7 +172,7 @@ def create_solution_image(original_image, hints):
 
     try:
         safe_hints = clean_text_for_plot_safe(hints)
-        ax_note.text(0.05, 0.88, "💡 1타 강사의 핵심 Point", fontsize=24, color='#FF4500', fontweight='bold', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
+        ax_note.text(0.05, 0.88, "💡 핵심 Point", fontsize=24, color='#FF4500', fontweight='bold', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
         lines = safe_hints.split('\n')
         y_pos = 0.72
         for line in lines:
@@ -187,7 +187,7 @@ def create_solution_image(original_image, hints):
         ax_note.axis('off')
         ax_note.add_patch(rect)
         fallback_hints = text_for_plot_fallback(hints)
-        ax_note.text(0.05, 0.85, "💡 1타 강사의 핵심 Point", fontsize=24, color='#FF4500', fontweight='bold', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
+        ax_note.text(0.05, 0.85, "💡 핵심 Point", fontsize=24, color='#FF4500', fontweight='bold', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
         ax_note.text(0.05, 0.65, fallback_hints, fontsize=21, color='#333333', va='top', ha='left', transform=ax_note.transAxes, wrap=True, fontproperties=font_prop)
 
     buf = io.BytesIO()
@@ -295,7 +295,7 @@ if menu == "📸 문제 풀기":
         if raw_image.mode in ("RGBA", "P"): raw_image = raw_image.convert("RGB")
         st.image(raw_image, caption="선택된 문제", width=400)
 
-        if st.button("🔍 1타 강사 분석 시작", type="primary"):
+        if st.button("🔍 분석 시작", type="primary"):
             with st.spinner("분석 중..."):
                 st.session_state['gemini_image'] = resize_image(raw_image)
                 try:
@@ -315,7 +315,7 @@ if menu == "📸 문제 풀기":
                     
                     ===상세풀이_텍스트===
                     ### 📖 [1] 정석 풀이 (Logic Flow)
-                    (단순 계산 생략. '조건 -> 공식 -> 결과' 흐름으로 압축)
+                    (단순 계산 생략. '조건 -> 공식 -> 결과' 흐름으로 압축, 수식은 줄바꿈($$)을 적극 활용.)
                     
                     ### 🍯 [2] 숏컷 풀이 (Genius Shortcut)
                     (직관적 풀이나 빠른 계산법. 없으면 '없음')
@@ -382,3 +382,4 @@ elif menu == "📒 내 오답 노트":
                 st.write(row.get('내용', ''))
                 if st.button("✅ 복습", key=f"rev_{index}"):
                     if increment_review_count(row.get('날짜'), row.get('이름')): st.rerun()
+
