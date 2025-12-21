@@ -17,15 +17,16 @@ import itertools
 import re
 
 # ----------------------------------------------------------
-# [1] 기본 설정
+# [1] 기본 설정 - 최강 모델 라인업
 # ----------------------------------------------------------
 st.set_page_config(page_title="MA학원 AI 오답 도우미", page_icon="🏫", layout="centered")
 
+# 원장님 전용 최신 모델 라인업
 MODELS_TO_TRY = [
-    "gemini-2.5-pro",           
-    "gemini-2.5-flash",         
-    "gemini-3-flash-preview",    
-    "gemini-2.0-flash-lite-001" 
+    "gemini-2.5-pro",           # 1순위: 가장 똑똑함 (첨삭 감지 및 숏컷 분석 최강)
+    "gemini-2.5-flash",         # 2순위: 속도와 정확도의 밸런스
+    "gemini-3-flash-preview",   # 3순위: 차세대 엔진
+    "gemini-2.0-flash-lite-001" # 4순위: 비상용 조교
 ]
 
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
@@ -139,7 +140,6 @@ def load_students_from_sheet():
 # 텍스트 정제 (이미지 오류 방지용)
 def clean_text_for_plot_safe(text):
     if not text: return ""
-    # LaTeX 명령어 중 Matplotlib이 싫어하는 것들 변환
     text = text.replace(r'\iff', '⇔').replace(r'\implies', '⇒')
     text = text.replace(r'\le', '≤').replace(r'\ge', '≥')
     return text
@@ -148,6 +148,7 @@ def text_for_plot_fallback(text):
     if not text: return ""
     return re.sub(r'[\$\\\{\}]', '', text)
 
+# 🔥 [디자인] 포스트잇 이미지 생성 (가독성 최적화)
 def create_solution_image(original_image, hints):
     font_prop = get_handwriting_font_prop()
     w, h = original_image.size
@@ -172,13 +173,13 @@ def create_solution_image(original_image, hints):
 
     try:
         safe_hints = clean_text_for_plot_safe(hints)
-        ax_note.text(0.05, 0.88, "💡 핵심 Point", fontsize=24, color='#FF4500', fontweight='bold', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
+        ax_note.text(0.05, 0.88, "💡 1타 강사의 핵심 Point", fontsize=24, color='#FF4500', fontweight='bold', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
         lines = safe_hints.split('\n')
         y_pos = 0.72
         for line in lines:
             if line.strip():
-                # 폰트 깨짐 방지를 위해 너무 긴 줄은 자름
-                display_line = line.strip()[:40] + "..." if len(line.strip()) > 40 else line.strip()
+                # 너무 긴 줄 자르기 및 줄간격 확보
+                display_line = line.strip()[:45] + "..." if len(line.strip()) > 45 else line.strip()
                 ax_note.text(0.05, y_pos, f"• {display_line}", fontsize=21, color='#333333', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
                 y_pos -= 0.12
         fig.canvas.draw()
@@ -187,7 +188,7 @@ def create_solution_image(original_image, hints):
         ax_note.axis('off')
         ax_note.add_patch(rect)
         fallback_hints = text_for_plot_fallback(hints)
-        ax_note.text(0.05, 0.85, "💡 핵심 Point", fontsize=24, color='#FF4500', fontweight='bold', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
+        ax_note.text(0.05, 0.85, "💡 1타 강사의 핵심 Point", fontsize=24, color='#FF4500', fontweight='bold', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
         ax_note.text(0.05, 0.65, fallback_hints, fontsize=21, color='#333333', va='top', ha='left', transform=ax_note.transAxes, wrap=True, fontproperties=font_prop)
 
     buf = io.BytesIO()
@@ -228,6 +229,9 @@ if 'gemini_image' not in st.session_state:
     st.session_state['gemini_image'] = None
 if 'solution_image' not in st.session_state:
     st.session_state['solution_image'] = None
+# 첨삭 데이터 저장용 세션
+if 'correction_data' not in st.session_state:
+    st.session_state['correction_data'] = None
 
 def login_page():
     st.markdown("<h1 style='text-align: center;'>🔒 MA학원 로그인</h1>", unsafe_allow_html=True)
@@ -258,29 +262,31 @@ if not st.session_state['is_logged_in']:
 # ----------------------------------------------------------
 with st.sidebar:
     st.success(f"👋 {st.session_state['user_name']} 학생")
+    # 🔥 메뉴 통합: 첨삭 메뉴 제거
     menu = st.radio("메뉴 선택", ["📸 문제 풀기", "📒 내 오답 노트"])
     if st.button("로그아웃"):
         st.session_state['is_logged_in'] = False
         st.session_state['analysis_result'] = None
         st.session_state['solution_image'] = None
+        st.session_state['correction_data'] = None # 첨삭 데이터도 초기화
         st.rerun()
 
 if menu == "📸 문제 풀기":
     st.markdown("### 🏫 MA학원 AI 오답 도우미")
-    st.markdown("##### 1. 과목을 먼저 선택하세요")
+    st.info("💡 팁: 내가 푼 시험지 사진을 올리면, AI가 자동으로 채점하고 첨삭해줍니다!")
     
+    st.markdown("##### 1. 과목을 먼저 선택하세요")
     subject_options = ["선택안함", "초4 수학", "초5 수학", "초6 수학", "중1 수학", "중2 수학", "중3 수학", "--- 2022 개정 ---", "[22개정] 공통수학1", "[22개정] 공통수학2", "[22개정] 대수", "[22개정] 미적분1", "[22개정] 확통", "--- 2015 개정 ---", "[15개정] 수학(상/하)", "[15개정] 수1", "[15개정] 수2", "[15개정] 미적분", "[15개정] 확통", "[15개정] 기하"]
     selected_subject = st.selectbox("현재 과정을 선택해주세요:", subject_options)
 
     if selected_subject == "선택안함" or "---" in selected_subject:
-        st.info("👆 과목 선택 후 시작해주세요.")
+        st.warning("👆 과목 선택 후 시작해주세요.")
         st.stop()
 
-    # 프롬프트 톤 설정 (고등부 위주로 간결하게)
-    tone = "핵심만 짚어주는 1타강사처럼"
+    tone = "간결하고 명확한 1타강사 스타일"
 
     st.markdown("---")
-    st.markdown("##### 2. 문제 업로드")
+    st.markdown("##### 2. 문제 업로드 (내 풀이가 있어도 OK!)")
     tab1, tab2 = st.tabs(["📸 카메라", "📂 갤러리"])
     img_file = None
     with tab1:
@@ -293,32 +299,45 @@ if menu == "📸 문제 풀기":
     if img_file:
         raw_image = Image.open(img_file)
         if raw_image.mode in ("RGBA", "P"): raw_image = raw_image.convert("RGB")
-        st.image(raw_image, caption="선택된 문제", width=400)
+        st.image(raw_image, caption="선택된 이미지", width=400)
 
-        if st.button("🔍 분석 시작", type="primary"):
-            with st.spinner("분석 중..."):
+        if st.button("🔍 AI 분석 및 첨삭 시작", type="primary"):
+            with st.spinner("AI가 이미지를 분석하고 있습니다... (풀이 감지 중)"):
                 st.session_state['gemini_image'] = resize_image(raw_image)
+                # 새 분석 시작 시 기존 첨삭 데이터 초기화
+                st.session_state['correction_data'] = None
+                
                 try:
-                    # 🔥 [프롬프트 대폭 수정] 논리 위주 압축 지시
+                    # 🔥 [프롬프트 대통합] 자동 감지 + 풀이 다이어트
                     prompt = f"""
-                    당신은 대치동 1타 수학 강사입니다. 과목:{selected_subject}
-                    **단순 계산(전개, 이항, 소거 등) 과정은 생략**하고, '설계'와 '논리' 위주로 설명하세요.
+                    당신은 대치동 1타 수학 강사입니다. 과목:{selected_subject}, 말투:{tone}
+                    이미지를 분석하여 다음 두 가지 역할을 동시에 수행하세요.
                     
-                    [필수 지시사항]
-                    1. **이미지용_힌트**: LaTeX 절대 금지. '이항하면', '판별식 D>0' 처럼 한글과 기호(->)로만 작성. (오류 방지)
-                    2. **상세풀이**: 줄글 금지. **번호 매기기(1. 2. 3.)**로 구조화하세요.
-                    3. 수식은 줄바꿈($$)을 적극 활용하여 눈에 띄게 하세요.
+                    **[역할 1: 자동 첨삭 (선택적 수행)]**
+                    이미지에 학생의 손글씨 풀이 흔적이 있다면, 빨간펜 선생님처럼 틀린 부분을 지적하고 교정해 주세요. 풀이가 없다면 이 부분은 생략합니다.
                     
-                    [출력 구분자 (정확히 준수)]
+                    **[역할 2: 정석 풀이 제공 (필수 수행)]**
+                    문제에 대한 완벽한 해설을 제공하되, **TMI(줄글 설명, 단순 계산 과정)는 제거**하고 **수식과 논리 흐름(→, ∴ 사용)** 위주로 간결하게 작성하세요.
+                    
+                    ---
+                    **[반드시 지켜야 할 출력 형식]**
+                    
+                    **(학생 풀이가 있을 경우에만 출력)**
+                    ===첨삭_결과===
+                    [총평] (짧은 한마디. 예: 계산 실수가 아쉽네!)
+                    [틀린 곳] (위치와 이유 지적)
+                    [올바른 방향] (교정 가이드)
+                    
+                    **(항상 필수 출력)**
                     ===이미지용_힌트===
-                    (단원명\\n핵심 공식\\n결정적 힌트. 텍스트로만 3줄)
+                    (단원명\\n핵심 공식\\n결정적 힌트. LaTeX 금지, 텍스트로 3줄)
                     
                     ===상세풀이_텍스트===
                     ### 📖 [1] 정석 풀이 (Logic Flow)
-                    (단순 계산 생략. '조건 -> 공식 -> 결과' 흐름으로 압축, 수식은 줄바꿈($$)을 적극 활용.)
+                    (단순 연산 생략. '조건 → 식 수립 → 결과' 흐름으로 압축. 번호 매기기. LaTeX 적극 사용)
                     
                     ### 🍯 [2] 숏컷 풀이 (Genius Shortcut)
-                    (직관적 풀이나 빠른 계산법. 없으면 '없음')
+                    (직관적 풀이나 팁. 없으면 '없음' 표기. LaTeX 사용)
                     
                     ===쌍둥이문제===
                     (LaTeX 사용)
@@ -329,12 +348,24 @@ if menu == "📸 문제 풀기":
                     st.session_state['analysis_result'] = result_text
                     st.session_state['used_model'] = used_model
                     
-                    img_hint = "힌트 없음"
+                    # 1. 이미지 힌트 파싱
+                    img_hint = "힌트 분석 실패"
                     if "===이미지용_힌트===" in result_text and "===상세풀이_텍스트===" in result_text:
                         img_hint = result_text.split("===이미지용_힌트===")[1].split("===상세풀이_텍스트===")[0].strip()
-                    
                     st.session_state['solution_image'] = create_solution_image(st.session_state['gemini_image'], img_hint)
-                    
+
+                    # 2. 첨삭 데이터 파싱 (있을 경우에만)
+                    if "===첨삭_결과===" in result_text:
+                        try:
+                            correction_part = result_text.split("===첨삭_결과===")[1].split("===이미지용_힌트===")[0].strip()
+                            c_review = correction_part.split("[총평]")[1].split("[틀린 곳]")[0].strip()
+                            c_point = correction_part.split("[틀린 곳]")[1].split("[올바른 방향]")[0].strip()
+                            c_guide = correction_part.split("[올바른 방향]")[1].strip()
+                            st.session_state['correction_data'] = {"review": c_review, "point": c_point, "guide": c_guide}
+                        except:
+                             print("첨삭 데이터 파싱 실패 (형식 불일치)")
+
+                    # 데이터 저장
                     img_byte_arr = io.BytesIO()
                     st.session_state['solution_image'].save(img_byte_arr, format='JPEG', quality=90)
                     link = upload_to_imgbb(img_byte_arr.getvalue()) or "이미지_없음"
@@ -343,10 +374,23 @@ if menu == "📸 문제 풀기":
                 except Exception as e:
                     st.error(f"오류 발생: {e}")
 
+    # 결과 화면 출력
     if st.session_state['analysis_result']:
+        # 🔥 [신규] 자동 첨삭 결과 표시 (데이터가 있을 때만)
+        if st.session_state['correction_data']:
+            c_data = st.session_state['correction_data']
+            st.markdown("---")
+            st.markdown("### 🚩 AI 빨간펜 첨삭 결과")
+            st.success(f"👩‍🏫 선생님 총평: {c_data['review']}")
+            col1, col2 = st.columns(2)
+            with col1:
+                 st.error(f"🚨 **틀린 부분**\n\n{c_data['point']}")
+            with col2:
+                 st.info(f"✅ **올바른 방향**\n\n{c_data['guide']}")
+
+        # 기본 오답 노트 표시
         full_text = st.session_state['analysis_result']
-        parts = {"sol": "풀이 분석 중..", "prob": "문제 생성 중..", "ans": "해설 생성 중.."}
-        
+        parts = {"sol": "풀이 로딩 중..", "prob": "..", "ans": ".."}
         try:
             if "===상세풀이_텍스트===" in full_text:
                 temp = full_text.split("===상세풀이_텍스트===")[1]
@@ -362,15 +406,19 @@ if menu == "📸 문제 풀기":
 
         st.markdown("---")
         if st.session_state['solution_image']:
+            st.markdown("### 📘 오답 분석 카드 (핵심 요약)")
             st.image(st.session_state['solution_image'], use_container_width=True)
             
-        with st.expander("📖 논리 중심 해설 (계산 생략)", expanded=True):
+        with st.expander("📖 논리 중심 정석 풀이 (계산 생략)", expanded=True):
             st.markdown(parts["sol"])
+        
+        st.markdown("---")
         st.markdown("### 📝 쌍둥이 문제")
         st.write(parts["prob"])
         with st.expander("🔐 정답 보기"):
             st.write(parts["ans"])
 
+# 오답 노트 리스트 메뉴 (기존 유지)
 elif menu == "📒 내 오답 노트":
     st.markdown("### 📒 내 오답 노트 리스트")
     df = load_user_results(st.session_state['user_name'])
@@ -379,7 +427,21 @@ elif menu == "📒 내 오답 노트":
         for index, row in my_notes.iterrows():
             with st.expander(f"📅 {row.get('날짜', '')} | {row.get('과목', '')}"):
                 if row.get('링크') != "이미지_없음": st.image(row.get('링크'), use_container_width=True)
-                st.write(row.get('내용', ''))
+                content = row.get('내용', '내용 없음')
+                # 오답노트에서도 첨삭 내용이 있으면 보여주기 (간단히)
+                if "===첨삭_결과===" in content:
+                    try:
+                        review = content.split("[총평]")[1].split("[틀린 곳]")[0].strip()
+                        st.info(f"🚩 [첨삭 기록] 총평: {review}")
+                    except: pass
+                
+                if "===상세풀이_텍스트===" in str(content):
+                    try:
+                        c_sol = content.split("===상세풀이_텍스트===")[1].split("===쌍둥이문제===")[0].strip()
+                        st.markdown("**💡 상세 풀이**")
+                        st.write(c_sol)
+                    except: st.write(content)
+                else: st.write(content)
+
                 if st.button("✅ 복습", key=f"rev_{index}"):
                     if increment_review_count(row.get('날짜'), row.get('이름')): st.rerun()
-
