@@ -59,7 +59,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ----------------------------------------------------------
-# [2] 원장님 기존 유틸리티 함수 & 설정 (그대로 유지)
+# [2] 원장님 기존 유틸리티 함수 & 설정
 # ----------------------------------------------------------
 
 # API 키 설정 (st.secrets 사용)
@@ -370,7 +370,10 @@ if menu == "📸 문제 풀기":
                             processed_img = resize_image(image)
                             st.session_state['gemini_image'] = processed_img
                             
-# [수정된 프롬프트] 역슬래시 이스케이프 강조
+                            # 2. 프롬프트 생성 (변수 정의 확실하게)
+                            # 🔥 말투 설정: 불친절하고 간결하게
+                            tone = "불친절하고 딱딱한, 결론과 논리만 말하는 스타일"
+                            
                             prompt = f"""
                             당신은 대치동 수학 강사입니다. 과목:{selected_subject}, 말투:{tone}
                             이미지를 분석하여 정보를 JSON으로 주세요.
@@ -381,6 +384,7 @@ if menu == "📸 문제 풀기":
                                - (O) "\\\\frac" -> 정상
                             2. 모든 텍스트 내의 줄바꿈은 반드시 `\\n`을 사용하세요.
                             3. 응답은 오직 순수 JSON 문자열만 반환하세요. (코드블록 ```json 금지)
+                            4. **내용 지침:** TMI 금지, 인사말 생략. 논리 흐름(→, ∴) 위주로 작성. 친절한 줄글 설명은 하지 마세요.
 
                             **[출력 데이터 구조]**
                             {{
@@ -398,9 +402,17 @@ if menu == "📸 문제 풀기":
                             # 3. AI 호출
                             result_text, used_model = generate_content_with_fallback(prompt, processed_img)
                             
-                            # 4. JSON 파싱
+                            # 4. JSON 파싱 (강화된 버전)
                             try:
+                                # (1) ```json 같은 마크다운 기호 제거
                                 clean_json = result_text.replace("```json", "").replace("```", "").strip()
+                                
+                                # (2) 정규표현식으로 { ... } 구간만 정확히 추출 (잡다한 멘트 제거)
+                                json_match = re.search(r'\{[\s\S]*\}', clean_json)
+                                if json_match:
+                                    clean_json = json_match.group(0)
+                                
+                                # (3) JSON 로드 시도
                                 data = json.loads(clean_json)
                                 st.session_state['analysis_result'] = data
                                 
@@ -421,9 +433,13 @@ if menu == "📸 문제 풀기":
                                     link
                                 )
                                 
-                            except json.JSONDecodeError:
-                                st.error("AI 응답을 처리하는 중 오류가 발생했습니다. (JSON 파싱 실패)")
-                                st.write(result_text) # 디버깅용 원문 출력
+                            except json.JSONDecodeError as e:
+                                # 오류 발생 시 원문 보여주기 (디버깅용)
+                                st.error("⚠️ AI 응답을 해석하는 데 실패했습니다. (JSON 형식 오류)")
+                                with st.expander("개발자용 오류 상세 및 원문 보기"):
+                                    st.write(f"오류 내용: {e}")
+                                    st.code(result_text, language="json")
+                                    st.warning("팁: 위 원문을 복사해서 JSON 검사기에 넣어보세요. 역슬래시(\\)가 하나만 있어서 그럴 수 있습니다.")
                                 
                         except Exception as e:
                             st.error(f"분석 중 오류 발생: {e}")
@@ -446,41 +462,57 @@ if menu == "📸 문제 풀기":
                         <span class="text-xs font-bold text-green-600 bg-green-100 px-2 py-1 rounded-full">분석 완료</span>
                     </div>
                 """, unsafe_allow_html=True)
-                # 수식이 깨지지 않도록 st.markdown으로 직접 렌더링 (HTML 태그 분리)
+                
+                # 수식 인식 결과 출력
+                formula_text = res.get('formula', '수식 인식 불가')
+                # 혹시 $가 빠져있으면 강제로 붙여주는 안전장치
+                if "$" not in formula_text and len(formula_text) > 2:
+                    formula_text = f"${formula_text}$"
+                    
                 st.markdown(f"<div class='bg-gray-50 rounded-lg p-4 flex items-center justify-center border border-gray-200 text-xl text-slate-800 font-serif italic'>", unsafe_allow_html=True)
-                st.markdown(res.get('formula', '수식 인식 불가'))
+                st.markdown(formula_text) 
                 st.markdown("</div></div>", unsafe_allow_html=True)
                 
                 # 2. 풀이 카드
                 st.markdown('<div class="math-card">', unsafe_allow_html=True)
                 st.markdown('<h4 class="font-bold text-sm text-slate-500 mb-3 uppercase tracking-wider">상세 풀이</h4>', unsafe_allow_html=True)
                 
-                st.markdown(f"<p class='font-bold text-sm text-slate-800 mb-1'>📘 핵심 개념: {res.get('concept')}</p>", unsafe_allow_html=True)
+                # 개념
+                concept_text = res.get('concept', '')
+                st.markdown(f"<p class='font-bold text-sm text-slate-800 mb-1'>📘 핵심 개념: {concept_text}</p>", unsafe_allow_html=True)
                 
-                # 수식 렌더링을 위해 st.markdown 사용 (HTML 태그 안에서는 LaTeX가 잘 안될 수 있으므로 분리)
+                # 풀이 내용 (줄바꿈 처리 핵심!)
+                solution_text = res.get('solution', '').replace('\n', '  \n') 
                 st.markdown('<div class="text-sm text-slate-600 leading-relaxed space-y-2 pl-4 border-l-2 border-gray-100">', unsafe_allow_html=True)
-                st.markdown(res.get('solution'))
+                st.markdown(solution_text)
                 st.markdown('</div>', unsafe_allow_html=True)
 
+                # 숏컷
+                shortcut_text = res.get('shortcut', '').replace('\n', '  \n')
                 st.markdown('<div class="mt-4"><p class="font-bold text-sm text-[#f97316] mb-1">⚡ 1타 강사 숏컷</p>', unsafe_allow_html=True)
-                st.info(res.get('shortcut'))
+                st.info(shortcut_text)
                 st.markdown('</div>', unsafe_allow_html=True)
 
+                # 첨삭
+                correction_text = res.get('correction', '').replace('\n', '  \n')
                 st.markdown('<div class="mt-6 pt-4 border-t border-gray-100">', unsafe_allow_html=True)
                 st.markdown('<p class="text-sm font-bold text-red-500 mb-2">🚩 첨삭 노트</p>', unsafe_allow_html=True)
-                st.write(res.get('correction'))
+                st.write(correction_text)
                 st.markdown('</div></div>', unsafe_allow_html=True)
                 
-                # 3. 쌍둥이 문제 카드 (부활!)
+                # 3. 쌍둥이 문제 카드
                 st.markdown('<div class="math-card">', unsafe_allow_html=True)
                 st.markdown('<h4 class="font-bold text-sm text-slate-500 mb-3 uppercase tracking-wider">📝 쌍둥이 문제</h4>', unsafe_allow_html=True)
+                
+                twin_prob = res.get('twin_problem', '생성된 문제 없음').replace('\n', '  \n')
                 st.markdown('<div class="p-4 bg-slate-50 rounded-lg border border-slate-200 text-slate-800">', unsafe_allow_html=True)
-                st.markdown(res.get('twin_problem', '생성된 문제 없음'))
+                st.markdown(twin_prob)
                 st.markdown('</div>', unsafe_allow_html=True)
                 
                 # 정답 및 해설 (Expander)
                 with st.expander("🔐 정답 및 해설 보기"):
-                    st.markdown(res.get('twin_answer', '해설 없음'))
+                    twin_ans = res.get('twin_answer', '해설 없음').replace('\n', '  \n')
+                    st.markdown(twin_ans)
                 st.markdown('</div>', unsafe_allow_html=True)
 
                 # 4. 생성된 이미지 카드
@@ -500,7 +532,7 @@ if menu == "📸 문제 풀기":
                 """, unsafe_allow_html=True)
 
 # ----------------------------------------------------------
-# [6] 기능 구현: 내 오답 노트 (기존 로직 유지)
+# [6] 기능 구현: 내 오답 노트
 # ----------------------------------------------------------
 elif menu == "📒 내 오답 노트":
     st.markdown("""
@@ -524,14 +556,21 @@ elif menu == "📒 내 오답 노트":
                     try:
                         # 저장된 JSON 문자열을 파싱해서 보여주기
                         content_json = json.loads(row.get('내용').replace("'", "\""))
-                        st.markdown(f"**풀이:**")
-                        st.markdown(content_json.get('solution'))
+                        
+                        st.markdown(f"**📘 개념:** {content_json.get('concept')}")
+                        st.markdown("**📝 풀이:**")
+                        # 줄바꿈 처리
+                        sol_clean = content_json.get('solution', '').replace('\n', '  \n')
+                        st.markdown(sol_clean)
+                        
                         st.info(f"⚡ 숏컷: {content_json.get('shortcut')}")
                         
                         if content_json.get('twin_problem'):
                             st.divider()
                             st.markdown("**📝 쌍둥이 문제**")
-                            st.markdown(content_json.get('twin_problem'))
+                            st.markdown(content_json.get('twin_problem').replace('\n', '  \n'))
+                            with st.expander("정답 보기"):
+                                st.markdown(content_json.get('twin_answer').replace('\n', '  \n'))
                     except:
                         # 예전 데이터(JSON 아님)일 경우 그냥 출력
                         st.write(row.get('내용'))
@@ -543,6 +582,3 @@ elif menu == "📒 내 오답 노트":
                         st.rerun()
     else:
         st.info("아직 저장된 오답 노트가 없습니다.")
-
-
-
