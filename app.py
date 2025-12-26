@@ -47,6 +47,14 @@ st.markdown("""
             border: 1px solid #e5e7eb; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
             padding: 1.5rem; margin-bottom: 1.5rem;
         }
+        
+        /* Expander (정답 보기) 스타일링 */
+        .streamlit-expanderHeader {
+            background-color: #fff7ed;
+            border-radius: 0.5rem;
+            color: #ea580c;
+            font-weight: bold;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -67,11 +75,7 @@ except:
     st.error("설정 오류: st.secrets에 API 키가 없습니다.")
     st.stop()
 
-MODELS_TO_TRY = ["gemini-2.5-pro",           # 1순위: 가장 똑똑함 (첨삭 감지 및 숏컷 분석 최강)
-    "gemini-2.5-flash",         # 2순위: 속도와 정확도의 밸런스
-    "gemini-3-flash-preview",   # 3순위: 차세대 엔진
-    "gemini-2.0-flash-lite-001" # 4순위: 비상용 조교
-]
+MODELS_TO_TRY = ["gemini-1.5-flash", "gemini-1.5-pro"] # 속도 위해 flash 우선
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
 
 if 'key_index' not in st.session_state:
@@ -223,7 +227,7 @@ def create_solution_image(original_image, hints):
     plt.close(fig)
     return Image.open(buf)
 
-# AI 호출 함수 (JSON 출력을 위해 프롬프트 구조 변경)
+# AI 호출 함수
 def generate_content_with_fallback(prompt, image=None):
     last_error = None
     for model_name in MODELS_TO_TRY:
@@ -362,21 +366,32 @@ if menu == "📸 문제 풀기":
                             processed_img = resize_image(image)
                             st.session_state['gemini_image'] = processed_img
                             
-                            # 2. JSON 출력을 위한 프롬프트 (디자인에 데이터 꽂기 위함)
+# 2. JSON 출력을 위한 프롬프트 (수정됨: 불친절 & 초간결 모드)
+                            # tone 변수를 '불친절/단답'으로 변경하여 AI의 말수를 줄입니다.
+                            tone = "불친절하고 딱딱한, 결론과 논리만 말하는 스타일"
+                            
                             prompt = f"""
-                            당신은 대치동 1타 수학 강사입니다. 과목:{selected_subject}
-                            이 이미지를 분석하여 다음 정보를 반드시 **JSON 형식**으로만 출력하세요.
+                            당신은 대치동 수학 강사입니다. 과목:{selected_subject}, 말투:{tone}
+                            이미지를 분석하여 다음 정보를 반드시 **JSON 형식**으로만 출력하세요.
+
+                            **[필수 지침: TMI 금지]**
+                            1. 절대 친절하게 설명하지 마세요. 인사말, 서론, 결론 생략하세요.
+                            2. 줄글 설명을 최대한 줄이고, **화살표(→), 기호(∴, ∵)**와 **수식** 위주로 전개하세요.
+                            3. 단순 계산 과정은 생략하고, 논리의 비약이 없는 선에서 핵심 단계만 보여주세요.
+                            4. 수식은 Streamlit 렌더링을 위해 반드시 **LaTeX 문법(예: $x^2$)**을 사용하세요.
                             
                             {{
-                                "formula": "이미지 속 수식 (LaTeX 말고 일반 텍스트로 표현)",
-                                "concept": "핵심 수학 개념 (단원명 포함)",
-                                "solution": "단계별 정석 풀이 (줄바꿈은 \\n 사용, 논리적 흐름 중시)",
-                                "shortcut": "빠르게 푸는 팁이나 공식 (없으면 '기본 개념 충실히')",
-                                "correction": "학생의 풀이 흔적이 있다면 틀린 이유와 조언 (없으면 '풀이 흔적 없음')",
-                                "hint_for_image": "오답노트 이미지 생성용 짧은 힌트 3줄"
+                                "formula": "이미지 속 수식 (LaTeX로 $...$ 감싸서)",
+                                "concept": "핵심 개념 (단원명만 짧게)",
+                                "solution": "풀이 과정 (친절한 설명 금지. '조건 -> 식 -> 결과' 순서로 수식 위주 작성)",
+                                "shortcut": "숏컷 공식 (공식만 딱 적을 것)",
+                                "correction": "틀린 이유 (핵심 원인만 한 문장으로 지적)",
+                                "hint_for_image": "오답노트용 힌트 (명사형으로 3줄 요약)",
+                                "twin_problem": "숫자만 바꾼 유사 문제 (LaTeX 사용)",
+                                "twin_answer": "정답 및 해설 (과정 생략, 정답 위주)"
                             }}
                             
-                            응답은 오직 JSON 데이터만 포함해야 합니다. 마크다운 기호 없이 순수 JSON만 주세요.
+                            응답은 오직 JSON 데이터만 포함해야 합니다.
                             """
                             
                             # 3. AI 호출
@@ -420,8 +435,8 @@ if menu == "📸 문제 풀기":
                 res = st.session_state['analysis_result']
                 
                 # 1. 수식 인식 카드
-                st.markdown(f"""
-                <div class="math-card">
+                st.markdown('<div class="math-card">', unsafe_allow_html=True)
+                st.markdown("""
                     <div class="flex items-center justify-between mb-2">
                         <h3 class="font-bold text-slate-800 flex items-center gap-2">
                             <span class="material-symbols-outlined text-[#f97316]">auto_awesome</span>
@@ -429,34 +444,45 @@ if menu == "📸 문제 풀기":
                         </h3>
                         <span class="text-xs font-bold text-green-600 bg-green-100 px-2 py-1 rounded-full">분석 완료</span>
                     </div>
-                    <div class="bg-gray-50 rounded-lg p-4 flex items-center justify-center border border-gray-200">
-                        <p class="text-xl font-serif italic text-slate-800">{res.get('formula', '수식 인식 불가')}</p>
-                    </div>
-                </div>
                 """, unsafe_allow_html=True)
+                # 수식이 깨지지 않도록 st.markdown으로 직접 렌더링 (HTML 태그 분리)
+                st.markdown(f"<div class='bg-gray-50 rounded-lg p-4 flex items-center justify-center border border-gray-200 text-xl text-slate-800 font-serif italic'>", unsafe_allow_html=True)
+                st.markdown(res.get('formula', '수식 인식 불가'))
+                st.markdown("</div></div>", unsafe_allow_html=True)
                 
                 # 2. 풀이 카드
-                st.markdown(f"""
-                <div class="math-card">
-                    <h4 class="font-bold text-sm text-slate-500 mb-3 uppercase tracking-wider">상세 풀이</h4>
-                    <div class="space-y-4 pl-4 border-l-2 border-gray-100">
-                        <div>
-                            <p class="font-bold text-sm text-slate-800 mb-1">📘 핵심 개념: {res.get('concept')}</p>
-                            <div class="text-sm text-slate-600 leading-relaxed whitespace-pre-line">{res.get('solution')}</div>
-                        </div>
-                         <div class="mt-4">
-                            <p class="font-bold text-sm text-[#f97316] mb-1">⚡ 1타 강사 숏컷</p>
-                            <p class="text-sm text-slate-700 bg-orange-50 p-3 rounded-lg border border-orange-100">{res.get('shortcut')}</p>
-                        </div>
-                    </div>
-                    <div class="mt-6 pt-4 border-t border-gray-100">
-                        <p class="text-sm font-bold text-red-500 mb-2">🚩 첨삭 노트</p>
-                        <p class="text-sm text-slate-600">{res.get('correction')}</p>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown('<div class="math-card">', unsafe_allow_html=True)
+                st.markdown('<h4 class="font-bold text-sm text-slate-500 mb-3 uppercase tracking-wider">상세 풀이</h4>', unsafe_allow_html=True)
                 
-                # 3. 생성된 이미지 카드
+                st.markdown(f"<p class='font-bold text-sm text-slate-800 mb-1'>📘 핵심 개념: {res.get('concept')}</p>", unsafe_allow_html=True)
+                
+                # 수식 렌더링을 위해 st.markdown 사용 (HTML 태그 안에서는 LaTeX가 잘 안될 수 있으므로 분리)
+                st.markdown('<div class="text-sm text-slate-600 leading-relaxed space-y-2 pl-4 border-l-2 border-gray-100">', unsafe_allow_html=True)
+                st.markdown(res.get('solution'))
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                st.markdown('<div class="mt-4"><p class="font-bold text-sm text-[#f97316] mb-1">⚡ 1타 강사 숏컷</p>', unsafe_allow_html=True)
+                st.info(res.get('shortcut'))
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                st.markdown('<div class="mt-6 pt-4 border-t border-gray-100">', unsafe_allow_html=True)
+                st.markdown('<p class="text-sm font-bold text-red-500 mb-2">🚩 첨삭 노트</p>', unsafe_allow_html=True)
+                st.write(res.get('correction'))
+                st.markdown('</div></div>', unsafe_allow_html=True)
+                
+                # 3. 쌍둥이 문제 카드 (부활!)
+                st.markdown('<div class="math-card">', unsafe_allow_html=True)
+                st.markdown('<h4 class="font-bold text-sm text-slate-500 mb-3 uppercase tracking-wider">📝 쌍둥이 문제</h4>', unsafe_allow_html=True)
+                st.markdown('<div class="p-4 bg-slate-50 rounded-lg border border-slate-200 text-slate-800">', unsafe_allow_html=True)
+                st.markdown(res.get('twin_problem', '생성된 문제 없음'))
+                st.markdown('</div>', unsafe_allow_html=True)
+                
+                # 정답 및 해설 (Expander)
+                with st.expander("🔐 정답 및 해설 보기"):
+                    st.markdown(res.get('twin_answer', '해설 없음'))
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                # 4. 생성된 이미지 카드
                 if st.session_state['solution_image']:
                     st.markdown('<div class="math-card">', unsafe_allow_html=True)
                     st.write("🖼️ **오답 노트용 요약 이미지**")
@@ -497,8 +523,14 @@ elif menu == "📒 내 오답 노트":
                     try:
                         # 저장된 JSON 문자열을 파싱해서 보여주기
                         content_json = json.loads(row.get('내용').replace("'", "\""))
-                        st.markdown(f"**풀이:** {content_json.get('solution')}")
+                        st.markdown(f"**풀이:**")
+                        st.markdown(content_json.get('solution'))
                         st.info(f"⚡ 숏컷: {content_json.get('shortcut')}")
+                        
+                        if content_json.get('twin_problem'):
+                            st.divider()
+                            st.markdown("**📝 쌍둥이 문제**")
+                            st.markdown(content_json.get('twin_problem'))
                     except:
                         # 예전 데이터(JSON 아님)일 경우 그냥 출력
                         st.write(row.get('내용'))
@@ -510,4 +542,3 @@ elif menu == "📒 내 오답 노트":
                         st.rerun()
     else:
         st.info("아직 저장된 오답 노트가 없습니다.")
-
