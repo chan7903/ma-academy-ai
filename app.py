@@ -67,7 +67,11 @@ except:
     st.error("설정 오류: st.secrets에 API 키가 없습니다.")
     st.stop()
 
-MODELS_TO_TRY = ["gemini-1.5-flash", "gemini-1.5-pro"] # 속도 위해 flash 우선
+MODELS_TO_TRY = ["gemini-2.5-pro",           # 1순위: 가장 똑똑함 (첨삭 감지 및 숏컷 분석 최강)
+    "gemini-2.5-flash",         # 2순위: 속도와 정확도의 밸런스
+    "gemini-3-flash-preview",   # 3순위: 차세대 엔진
+    "gemini-2.0-flash-lite-001" # 4순위: 비상용 조교
+]
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
 
 if 'key_index' not in st.session_state:
@@ -506,3 +510,4 @@ elif menu == "📒 내 오답 노트":
                         st.rerun()
     else:
         st.info("아직 저장된 오답 노트가 없습니다.")
+
