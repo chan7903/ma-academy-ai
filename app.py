@@ -296,6 +296,7 @@ if 'chat_active' not in st.session_state: st.session_state['chat_active'] = Fals
 if 'chat_messages' not in st.session_state: st.session_state['chat_messages'] = []
 if 'self_note' not in st.session_state: st.session_state['self_note'] = ""
 if 'last_canvas_image' not in st.session_state: st.session_state['last_canvas_image'] = None
+if 'enable_canvas' not in st.session_state: st.session_state['enable_canvas'] = False # 🔥 판서 모드 토글 변수
 
 def login_page():
     st.markdown("<h1 style='text-align: center; color:#f97316;'>🏫 MathAI Pro 로그인</h1>", unsafe_allow_html=True)
@@ -354,90 +355,100 @@ with st.sidebar:
         st.session_state['gemini_image'] = None
         st.session_state['last_canvas_image'] = None
         st.session_state['self_note'] = ""
+        st.session_state['enable_canvas'] = False
         st.rerun()
         
     if st.button("로그아웃"):
         st.session_state['is_logged_in'] = False
         st.rerun()
 
+# 🔥 [수정됨] Layout nesting 오류 해결: 불필요한 spacer 제거
 if menu == "📸 문제 풀기":
-    col_spacer1, col_main, col_spacer2 = st.columns([0.5, 10, 0.5])
+    # col_spacer1, col_main, col_spacer2 = st.columns([0.5, 10, 0.5]) -> 제거함 (1단 합체 방지)
     
-    with col_main:
-        if not st.session_state['chat_active']:
+    # 바로 메인 컨텐츠 시작
+    if not st.session_state['chat_active']:
+        st.markdown("""
+        <div class="mb-6">
+            <h1 class="text-2xl font-bold text-[#111418]">AI 튜터에게 질문하기</h1>
+            <p class="text-slate-500 text-sm">문제를 찍으면 바로 답을 주지 않고, 선생님처럼 차근차근 알려줍니다.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        left_col, right_col = st.columns([1, 1.2], gap="medium")
+        with left_col:
+            st.markdown('<div class="math-card h-full">', unsafe_allow_html=True)
+            st.markdown('<h3 class="font-bold mb-4 text-slate-700">📤 문제 업로드</h3>', unsafe_allow_html=True)
+            
+            subject_options = [
+                "선택안함", 
+                "초3 수학", "초4 수학", "초5 수학", "초6 수학",
+                "중1 수학", "중2 수학", "중3 수학",
+                "--- 2022 개정 교육과정 (고1~) ---",
+                "[22개정] 공통수학1", "[22개정] 공통수학2", 
+                "[22개정] 대수", "[22개정] 미적분I", 
+                "[22개정] 미적분II", "[22개정] 확률과 통계", "[22개정] 기하",
+                "--- 2015 개정 교육과정 (고2~3) ---",
+                "[15개정] 수학(상)", "[15개정] 수학(하)", 
+                "[15개정] 수학I", "[15개정] 수학II", 
+                "[15개정] 미적분", "[15개정] 확률과 통계", "[15개정] 기하"
+            ]
+            selected_subject = st.selectbox("과목/단원", subject_options, label_visibility="collapsed")
+            
+            if selected_subject == "선택안함" or "---" in selected_subject:
+                st.warning("👆 먼저 과목을 선택해주세요.")
+                img_file = None
+            else:
+                tab1, tab2 = st.tabs(["파일 선택", "카메라"])
+                img_file = None
+                with tab1:
+                    img_file = st.file_uploader("이미지", type=['jpg', 'png'], label_visibility="collapsed")
+                with tab2:
+                    cam = st.camera_input("촬영", label_visibility="collapsed")
+                    if cam: img_file = cam
+
+            if img_file:
+                image = Image.open(img_file)
+                if image.mode in ("RGBA", "P"): image = image.convert("RGB")
+                st.image(image, caption="선택한 문제", use_column_width=True)
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                if st.button("💬 AI 튜터링 시작", type="primary"):
+                    st.session_state['gemini_image'] = resize_image(image)
+                    st.session_state['selected_subject'] = selected_subject
+                    st.session_state['chat_active'] = True
+                    st.session_state['chat_messages'] = [
+                        {"role": "ai", "content": "문제를 확인했어! 🤔\n\n바로 답을 알려주기보다는 같이 풀어보면 실력이 더 늘 거야.\n\n이 문제에서 **어떤 부분이 가장 헷갈리거나 막혔니?** (말로 물어보거나, 판서 모드를 켜서 표시해줘도 돼!)"}
+                    ]
+                    st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        with right_col:
             st.markdown("""
-            <div class="mb-6">
-                <h1 class="text-2xl font-bold text-[#111418]">AI 튜터에게 질문하기</h1>
-                <p class="text-slate-500 text-sm">문제를 찍으면 바로 답을 주지 않고, 선생님처럼 차근차근 알려줍니다.</p>
+            <div class="math-card flex flex-col items-center justify-center text-center h-[400px]">
+                <span class="material-symbols-outlined text-gray-300 text-[60px] mb-4">chat_bubble</span>
+                <h3 class="text-lg font-bold text-slate-700 mb-2">AI 과외 선생님 대기 중</h3>
+                <p class="text-slate-500 text-sm">문제를 올리고 튜터링을 시작해보세요.</p>
             </div>
             """, unsafe_allow_html=True)
 
-            left_col, right_col = st.columns([1, 1.2], gap="medium")
-            with left_col:
-                st.markdown('<div class="math-card h-full">', unsafe_allow_html=True)
-                st.markdown('<h3 class="font-bold mb-4 text-slate-700">📤 문제 업로드</h3>', unsafe_allow_html=True)
-                
-                subject_options = [
-                    "선택안함", 
-                    "초3 수학", "초4 수학", "초5 수학", "초6 수학",
-                    "중1 수학", "중2 수학", "중3 수학",
-                    "--- 2022 개정 교육과정 (고1~) ---",
-                    "[22개정] 공통수학1", "[22개정] 공통수학2", 
-                    "[22개정] 대수", "[22개정] 미적분I", 
-                    "[22개정] 미적분II", "[22개정] 확률과 통계", "[22개정] 기하",
-                    "--- 2015 개정 교육과정 (고2~3) ---",
-                    "[15개정] 수학(상)", "[15개정] 수학(하)", 
-                    "[15개정] 수학I", "[15개정] 수학II", 
-                    "[15개정] 미적분", "[15개정] 확률과 통계", "[15개정] 기하"
-                ]
-                selected_subject = st.selectbox("과목/단원", subject_options, label_visibility="collapsed")
-                
-                if selected_subject == "선택안함" or "---" in selected_subject:
-                    st.warning("👆 먼저 과목을 선택해주세요.")
-                    img_file = None
-                else:
-                    tab1, tab2 = st.tabs(["파일 선택", "카메라"])
-                    img_file = None
-                    with tab1:
-                        img_file = st.file_uploader("이미지", type=['jpg', 'png'], label_visibility="collapsed")
-                    with tab2:
-                        cam = st.camera_input("촬영", label_visibility="collapsed")
-                        if cam: img_file = cam
-
-                if img_file:
-                    image = Image.open(img_file)
-                    if image.mode in ("RGBA", "P"): image = image.convert("RGB")
-                    # 🔥 [수정됨] use_container_width 대신 use_column_width 사용 (버전 호환성 해결)
-                    st.image(image, caption="선택한 문제", use_column_width=True)
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    
-                    if st.button("💬 AI 튜터링 시작", type="primary"):
-                        st.session_state['gemini_image'] = resize_image(image)
-                        st.session_state['selected_subject'] = selected_subject
-                        st.session_state['chat_active'] = True
-                        st.session_state['chat_messages'] = [
-                            {"role": "ai", "content": "문제를 확인했어! 🤔\n\n바로 답을 알려주기보다는 같이 풀어보면 실력이 더 늘 거야.\n\n이 문제에서 **어떤 부분이 가장 헷갈리거나 막혔니?** (빨간펜으로 표시해서 보여줘도 돼!)"}
-                        ]
-                        st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
+    else:
+        # [Step 2] 튜터링 & 결과 화면
+        chat_col_left, chat_col_right = st.columns([1, 1.2], gap="medium")
+        
+        with chat_col_left:
+            st.markdown('<div class="math-card">', unsafe_allow_html=True)
             
-            with right_col:
-                st.markdown("""
-                <div class="math-card flex flex-col items-center justify-center text-center h-[400px]">
-                    <span class="material-symbols-outlined text-gray-300 text-[60px] mb-4">chat_bubble</span>
-                    <h3 class="text-lg font-bold text-slate-700 mb-2">AI 과외 선생님 대기 중</h3>
-                    <p class="text-slate-500 text-sm">문제를 올리고 튜터링을 시작해보세요.</p>
-                </div>
-                """, unsafe_allow_html=True)
+            # 🔥 [V3.1] 판서 모드 토글 (선택권 부여)
+            col_title, col_toggle = st.columns([0.6, 0.4])
+            with col_title:
+                st.markdown('<h3 class="font-bold mb-2 text-slate-700">📄 문제 & 질문</h3>', unsafe_allow_html=True)
+            with col_toggle:
+                st.session_state['enable_canvas'] = st.checkbox("🖍️ 판서(그리기) 모드", value=st.session_state['enable_canvas'])
 
-        else:
-            chat_col_left, chat_col_right = st.columns([1, 1.2], gap="medium")
-            
-            with chat_col_left:
-                st.markdown('<div class="math-card">', unsafe_allow_html=True)
-                st.markdown('<h3 class="font-bold mb-2 text-slate-700">🖍️ 스마트 칠판 (궁금한 곳 체크!)</h3>', unsafe_allow_html=True)
-                
-                if st.session_state['gemini_image']:
+            if st.session_state['gemini_image']:
+                # 판서 모드 켜졌을 때만 Canvas 표시
+                if st.session_state['enable_canvas']:
                     orig_w, orig_h = st.session_state['gemini_image'].size
                     canvas_width = 500
                     canvas_height = int(orig_h * (canvas_width / orig_w))
@@ -456,148 +467,154 @@ if menu == "📸 문제 풀기":
                     
                     if canvas_result.image_data is not None:
                         st.session_state['last_canvas_image'] = canvas_result.image_data
+                else:
+                    # 평소에는 깔끔한 이미지 보기
+                    st.image(st.session_state['gemini_image'], use_column_width=True)
 
-                st.markdown("---")
+            st.markdown("---")
+            
+            st.markdown('<div class="h-[400px] overflow-y-auto flex flex-col relative">', unsafe_allow_html=True)
+            for msg in st.session_state['chat_messages']:
+                if msg['role'] == 'ai':
+                    with st.chat_message("assistant", avatar="🤖"):
+                        st.write(msg['content'])
+                else:
+                    with st.chat_message("user", avatar="🧑‍🎓"):
+                        st.write(msg['content'])
+
+            if not st.session_state['analysis_result']:
+                # 🔥 [V3.1] 오류 해결된 입력창 (Nesting level reduced)
+                # 바깥쪽 spacer를 없앴기 때문에 여기서 columns를 써도 안전함 (Level 2)
+                col_mic, col_text = st.columns([0.1, 0.9])
                 
-                st.markdown('<div class="h-[400px] overflow-y-auto flex flex-col relative">', unsafe_allow_html=True)
-                for msg in st.session_state['chat_messages']:
-                    if msg['role'] == 'ai':
-                        with st.chat_message("assistant", avatar="🤖"):
-                            st.write(msg['content'])
-                    else:
-                        with st.chat_message("user", avatar="🧑‍🎓"):
-                            st.write(msg['content'])
+                with col_mic:
+                    voice_text = speech_to_text(language='ko', start_prompt="🎤", stop_prompt="⏹️", just_once=False, use_container_width=True)
+                
+                with col_text:
+                    prompt = st.chat_input("질문을 입력하세요 (타자, 음성, 판서 모두 가능)")
+                
+                if voice_text:
+                    prompt = voice_text
 
-                if not st.session_state['analysis_result']:
-                    col_mic, col_text = st.columns([0.1, 0.9])
-                    with col_mic:
-                        voice_text = speech_to_text(language='ko', start_prompt="🎤", stop_prompt="⏹️", just_once=False, use_container_width=True)
-                    
-                    with col_text:
-                        prompt = st.chat_input("질문을 입력하세요 (음성 버튼을 눌러 말해도 됩니다)")
-                    
-                    if voice_text:
-                        prompt = voice_text
+                if prompt:
+                    st.session_state['chat_messages'].append({"role": "user", "content": prompt})
+                    st.rerun()
 
-                    if prompt:
-                        st.session_state['chat_messages'].append({"role": "user", "content": prompt})
+            if st.session_state['chat_messages'] and st.session_state['chat_messages'][-1]['role'] == 'user' and not st.session_state['analysis_result']:
+                with st.spinner("선생님이 답변을 생각 중입니다..."):
+                    try:
+                        history_text = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state['chat_messages']])
+                        tutor_prompt = f"""
+                        당신은 친절하지만 핵심을 찌르는 수학 '튜터'입니다. 과목: {st.session_state['selected_subject']}
+                        [대화 내역] {history_text}
+                        [지시사항]
+                        1. 정답을 바로 주지 말고 힌트나 역질문을 하세요.
+                        2. 수식은 LaTeX($$)를 사용하세요. (예: $x^2$)
+                        3. 짧고 명확하게(3문장 이내) 답변하세요.
+                        """
+                        
+                        img_to_send = st.session_state['gemini_image']
+                        if st.session_state['enable_canvas'] and st.session_state.get('last_canvas_image') is not None:
+                             # 캔버스 모드이고 그림이 있으면 그 데이터 활용 (여기선 로직 단순화)
+                             pass
+
+                        response_text, _ = generate_content_with_fallback(tutor_prompt, img_to_send, mode="chat")
+                        st.session_state['chat_messages'].append({"role": "ai", "content": response_text})
                         st.rerun()
+                    except Exception as e:
+                        st.error(f"채팅 오류: {e}")
+            st.markdown('</div></div>', unsafe_allow_html=True)
 
-                if st.session_state['chat_messages'] and st.session_state['chat_messages'][-1]['role'] == 'user' and not st.session_state['analysis_result']:
-                    with st.spinner("선생님이 답변을 생각 중입니다..."):
+        with chat_col_right:
+            st.markdown('<div class="math-card" style="border-left: 5px solid #f97316;">', unsafe_allow_html=True)
+            st.markdown('<h3 class="font-bold mb-2 text-[#f97316]">✍️ 나의 깨달음 정리 (Self-Note)</h3>', unsafe_allow_html=True)
+            st.markdown('<p class="text-xs text-slate-500 mb-2">선생님과 대화하며 알게 된 힌트나 핵심을 적어보세요. (나중에 오답노트에 저장됩니다)</p>', unsafe_allow_html=True)
+            
+            self_note_input = st.text_area("내용 입력", value=st.session_state['self_note'], height=150, label_visibility="collapsed", placeholder="예: 판별식 D가 0보다 커야 실근 2개를 갖는다는 걸 깜빡했다.")
+            if st.button("💾 정리 내용 임시 저장"):
+                st.session_state['self_note'] = self_note_input
+                st.toast("정리 내용이 저장되었습니다.")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            if not st.session_state['analysis_result']:
+                st.info("💡 충분히 고민하고 정리를 마쳤다면, 아래 버튼을 눌러 해설을 확인하세요.")
+                if st.button("🔐 정답 및 1타 풀이 공개 (저장)", type="primary"):
+                    with st.spinner("최종 리포트를 생성하고 오답노트에 저장 중입니다..."):
+                        final_prompt = f"""
+                        당신은 대한민국 최고의 수능 수학 '1타 강사'입니다. (과목:{st.session_state['selected_subject']})
+                        이미지를 분석하여 JSON 형식으로 결과를 출력하세요.
+
+                        **[학생의 Self-Note 내용]**
+                        {st.session_state['self_note']}
+                        (이 내용도 참고하여 첨삭이나 총평에 반영해주세요.)
+
+                        **[핵심 지침: 1타 강사의 숏컷(Shortcut) 우선 적용]**
+                        문제를 풀 때 다음의 '실전 스킬'이 적용 가능한지 최우선으로 검토하고, 가능하다면 **[2] 숏컷 풀이**에 반드시 상세히 포함하세요.
+                        1. **[다항함수]** 3차/4차함수 비율 관계(2:1, 3:1 법칙), 넓이 공식(1/6, 1/12 공식), 높이차 공식.
+                        2. **[수열]** 등차수열 합의 기하학적 해석(원점 지나는 2차함수), 등비수열의 덩어리 합 법칙, 등차중항(평균×개수).
+                        3. **[미분/적분]** 이차함수 두 점 사이 기울기 = 중점의 미분계수, 0 근처 근사(sin x ≈ x), 변곡접선 영역 구분.
+                        4. **[삼각/기하]** 단위원기반 해석, 사인법칙(지름의 지배), 코사인법칙(피타고라스 보정).
+
+                        **[필수 지침]**
+                        1. **무조건 JSON 포맷**만 출력하세요. 마크다운(```json)이나 사족을 달지 마세요.
+                        2. **[매우 중요] 모든 수식은 LaTeX 포맷($...$)을 사용하세요.** (예: x^2 대신 $x^2$, sqrt(x) 대신 $\sqrt{{x}}$)
+                        3. 숏컷(Shortcut)을 최우선으로 적용하여 풀이를 작성하세요.
+
+                        **[출력해야 할 JSON 구조]**
+                        {{
+                            "formula": "인식된 수식 (LaTeX)",
+                            "concept": "핵심 개념 (예: 3차함수 비율 관계)",
+                            "hint_for_image": "이미지용 3줄 힌트 (LaTeX 금지, 텍스트만)",
+                            "solution": "상세 풀이 (정석 풀이, 단계별 논리, 수식은 $...$ 사용)",
+                            "shortcut": "1타 강사의 숏컷 풀이 (직관적, 빠른 풀이, 수식은 $...$ 사용)",
+                            "correction": "학생의 풀이 또는 Self-Note에 대한 피드백/첨삭",
+                            "twin_problem": "쌍둥이 문제 (LaTeX)",
+                            "twin_answer": "쌍둥이 문제 정답 및 해설 (LaTeX)"
+                        }}
+                        """
                         try:
-                            history_text = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state['chat_messages']])
-                            tutor_prompt = f"""
-                            당신은 친절하지만 핵심을 찌르는 수학 '튜터'입니다. 과목: {st.session_state['selected_subject']}
-                            [대화 내역] {history_text}
-                            [지시사항]
-                            1. 정답을 바로 주지 말고 힌트나 역질문을 하세요.
-                            2. 수식은 LaTeX($$)를 사용하세요. (예: $x^2$)
-                            3. 짧고 명확하게(3문장 이내) 답변하세요.
-                            """
+                            res_text, _ = generate_content_with_fallback(final_prompt, st.session_state['gemini_image'], mode="final")
+                            clean_json = sanitize_json(res_text.replace("```json", "").replace("```", "").strip())
+                            match = re.search(r'\{[\s\S]*\}', clean_json)
+                            if match: clean_json = match.group(0)
                             
-                            img_to_send = st.session_state['gemini_image']
-                            if st.session_state.get('last_canvas_image') is not None:
-                                pass 
-
-                            response_text, _ = generate_content_with_fallback(tutor_prompt, img_to_send, mode="chat")
-                            st.session_state['chat_messages'].append({"role": "ai", "content": response_text})
+                            data = json.loads(clean_json)
+                            data['my_self_note'] = st.session_state['self_note']
+                            st.session_state['analysis_result'] = data
+                            
+                            st.session_state['solution_image'] = create_solution_image(
+                                st.session_state['gemini_image'], data.get('hint_for_image', '힌트 없음')
+                            )
+                            img_byte_arr = io.BytesIO()
+                            st.session_state['solution_image'].save(img_byte_arr, format='JPEG', quality=90)
+                            link = upload_to_imgbb(img_byte_arr.getvalue()) or "이미지_없음"
+                            
+                            save_result_to_sheet(
+                                st.session_state['user_name'], 
+                                st.session_state['selected_subject'], 
+                                data.get('concept'), 
+                                str(data), 
+                                link
+                            )
                             st.rerun()
                         except Exception as e:
-                            st.error(f"채팅 오류: {e}")
-                st.markdown('</div></div>', unsafe_allow_html=True)
+                            st.error(f"분석 오류: {e}")
 
-            with chat_col_right:
-                st.markdown('<div class="math-card" style="border-left: 5px solid #f97316;">', unsafe_allow_html=True)
-                st.markdown('<h3 class="font-bold mb-2 text-[#f97316]">✍️ 나의 깨달음 정리 (Self-Note)</h3>', unsafe_allow_html=True)
-                st.markdown('<p class="text-xs text-slate-500 mb-2">선생님과 대화하며 알게 된 힌트나 핵심을 적어보세요. (나중에 오답노트에 저장됩니다)</p>', unsafe_allow_html=True)
-                
-                self_note_input = st.text_area("내용 입력", value=st.session_state['self_note'], height=150, label_visibility="collapsed", placeholder="예: 판별식 D가 0보다 커야 실근 2개를 갖는다는 걸 깜빡했다.")
-                if st.button("💾 정리 내용 임시 저장"):
-                    st.session_state['self_note'] = self_note_input
-                    st.toast("정리 내용이 저장되었습니다.")
-                st.markdown('</div>', unsafe_allow_html=True)
-
-                if not st.session_state['analysis_result']:
-                    st.info("💡 충분히 고민하고 정리를 마쳤다면, 아래 버튼을 눌러 해설을 확인하세요.")
-                    if st.button("🔐 정답 및 1타 풀이 공개 (저장)", type="primary"):
-                        with st.spinner("최종 리포트를 생성하고 오답노트에 저장 중입니다..."):
-                            final_prompt = f"""
-                            당신은 대한민국 최고의 수능 수학 '1타 강사'입니다. (과목:{st.session_state['selected_subject']})
-                            이미지를 분석하여 JSON 형식으로 결과를 출력하세요.
-
-                            **[학생의 Self-Note 내용]**
-                            {st.session_state['self_note']}
-                            (이 내용도 참고하여 첨삭이나 총평에 반영해주세요.)
-
-                            **[핵심 지침: 1타 강사의 숏컷(Shortcut) 우선 적용]**
-                            문제를 풀 때 다음의 '실전 스킬'이 적용 가능한지 최우선으로 검토하고, 가능하다면 **[2] 숏컷 풀이**에 반드시 상세히 포함하세요.
-                            1. **[다항함수]** 3차/4차함수 비율 관계(2:1, 3:1 법칙), 넓이 공식(1/6, 1/12 공식), 높이차 공식.
-                            2. **[수열]** 등차수열 합의 기하학적 해석(원점 지나는 2차함수), 등비수열의 덩어리 합 법칙, 등차중항(평균×개수).
-                            3. **[미분/적분]** 이차함수 두 점 사이 기울기 = 중점의 미분계수, 0 근처 근사(sin x ≈ x), 변곡접선 영역 구분.
-                            4. **[삼각/기하]** 단위원기반 해석, 사인법칙(지름의 지배), 코사인법칙(피타고라스 보정).
-
-                            **[필수 지침]**
-                            1. **무조건 JSON 포맷**만 출력하세요. 마크다운(```json)이나 사족을 달지 마세요.
-                            2. **[매우 중요] 모든 수식은 LaTeX 포맷($...$)을 사용하세요.** (예: x^2 대신 $x^2$, sqrt(x) 대신 $\sqrt{{x}}$)
-                            3. 숏컷(Shortcut)을 최우선으로 적용하여 풀이를 작성하세요.
-
-                            **[출력해야 할 JSON 구조]**
-                            {{
-                                "formula": "인식된 수식 (LaTeX)",
-                                "concept": "핵심 개념 (예: 3차함수 비율 관계)",
-                                "hint_for_image": "이미지용 3줄 힌트 (LaTeX 금지, 텍스트만)",
-                                "solution": "상세 풀이 (정석 풀이, 단계별 논리, 수식은 $...$ 사용)",
-                                "shortcut": "1타 강사의 숏컷 풀이 (직관적, 빠른 풀이, 수식은 $...$ 사용)",
-                                "correction": "학생의 풀이 또는 Self-Note에 대한 피드백/첨삭",
-                                "twin_problem": "쌍둥이 문제 (LaTeX)",
-                                "twin_answer": "쌍둥이 문제 정답 및 해설 (LaTeX)"
-                            }}
-                            """
-                            try:
-                                res_text, _ = generate_content_with_fallback(final_prompt, st.session_state['gemini_image'], mode="final")
-                                clean_json = sanitize_json(res_text.replace("```json", "").replace("```", "").strip())
-                                match = re.search(r'\{[\s\S]*\}', clean_json)
-                                if match: clean_json = match.group(0)
-                                
-                                data = json.loads(clean_json)
-                                data['my_self_note'] = st.session_state['self_note']
-                                st.session_state['analysis_result'] = data
-                                
-                                st.session_state['solution_image'] = create_solution_image(
-                                    st.session_state['gemini_image'], data.get('hint_for_image', '힌트 없음')
-                                )
-                                img_byte_arr = io.BytesIO()
-                                st.session_state['solution_image'].save(img_byte_arr, format='JPEG', quality=90)
-                                link = upload_to_imgbb(img_byte_arr.getvalue()) or "이미지_없음"
-                                
-                                save_result_to_sheet(
-                                    st.session_state['user_name'], 
-                                    st.session_state['selected_subject'], 
-                                    data.get('concept'), 
-                                    str(data), 
-                                    link
-                                )
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"분석 오류: {e}")
-
-                if st.session_state['analysis_result']:
-                    res = st.session_state['analysis_result']
-                    st.success("🎉 분석 완료! 오답노트에 저장되었습니다.")
-                    with st.expander("📘 1타 강사의 상세 풀이 & 숏컷", expanded=True):
-                        st.markdown(f"**핵심 개념:** {res.get('concept')}")
-                        st.markdown("---")
-                        st.markdown(res.get('solution').replace('\n', '  \n'))
-                        st.markdown("---")
-                        st.info(f"⚡ **숏컷:** {res.get('shortcut')}")
-                    with st.expander("📝 쌍둥이 문제 확인"):
-                        st.write(res.get('twin_problem'))
-                        if st.button("정답 보기"):
-                            st.write(res.get('twin_answer'))
-                    if st.session_state['solution_image']:
-                        # 🔥 [수정됨] use_container_width 대신 use_column_width 사용 (버전 호환성 해결)
-                        st.image(st.session_state['solution_image'], caption="오답노트 이미지", use_column_width=True)
+            if st.session_state['analysis_result']:
+                res = st.session_state['analysis_result']
+                st.success("🎉 분석 완료! 오답노트에 저장되었습니다.")
+                with st.expander("📘 1타 강사의 상세 풀이 & 숏컷", expanded=True):
+                    st.markdown(f"**핵심 개념:** {res.get('concept')}")
+                    st.markdown("---")
+                    st.markdown(res.get('solution').replace('\n', '  \n'))
+                    st.markdown("---")
+                    st.info(f"⚡ **숏컷:** {res.get('shortcut')}")
+                with st.expander("📝 쌍둥이 문제 확인"):
+                    st.write(res.get('twin_problem'))
+                    if st.button("정답 보기"):
+                        st.write(res.get('twin_answer'))
+                if st.session_state['solution_image']:
+                    st.image(st.session_state['solution_image'], caption="오답노트 이미지", use_column_width=True)
 
 elif menu == "📒 내 오답 노트":
     st.markdown("""
@@ -613,7 +630,6 @@ elif menu == "📒 내 오답 노트":
                 col_img, col_txt = st.columns([1, 2])
                 with col_img:
                     if row.get('링크') and row.get('링크') != "이미지_없음":
-                        # 🔥 [수정됨] use_container_width 대신 use_column_width 사용 (버전 호환성 해결)
                         st.image(row.get('링크'), use_column_width=True)
                     else: st.info("이미지 없음")
                 with col_txt:
