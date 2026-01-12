@@ -15,11 +15,12 @@ import os
 import time
 import json
 import re
+import random # 랜덤 키 분배를 위해 필수
 
 # ----------------------------------------------------------
 # [1] 기본 설정 & 디자인 주입 (HTML/Tailwind)
 # ----------------------------------------------------------
-st.set_page_config(page_title="MathAI Pro", page_icon="🏫", layout="wide")
+st.set_page_config(page_title="MathAI Pro: Tutor Mode", page_icon="🏫", layout="wide")
 
 # Tailwind CSS & 폰트 주입
 st.markdown("""
@@ -46,36 +47,52 @@ st.markdown("""
             padding: 1.5rem; margin-bottom: 1.5rem;
         }
         
-        .streamlit-expanderHeader {
-            background-color: #fff7ed;
-            border-radius: 0.5rem;
-            color: #ea580c;
-            font-weight: bold;
-        }
+        /* 채팅 메시지 스타일 */
+        .stChatMessage { background-color: white; border-radius: 10px; padding: 10px; border: 1px solid #eee; }
+        .stChatMessage[data-testid="user-message"] { background-color: #fff7ed; border-color: #fdba74; }
     </style>
 """, unsafe_allow_html=True)
 
 # ----------------------------------------------------------
 # [2] 유틸리티 함수 & 설정
 # ----------------------------------------------------------
+
+# 🔥 [업그레이드] 키 13개 자동 로드 로직
 try:
-    API_KEYS = [
-        st.secrets["GOOGLE_API_KEY"],
-        st.secrets.get("GOOGLE_API_KEY_2", st.secrets["GOOGLE_API_KEY"]),
-        st.secrets.get("GOOGLE_API_KEY_3", st.secrets["GOOGLE_API_KEY"]),
-        st.secrets.get("GOOGLE_API_KEY_4", st.secrets["GOOGLE_API_KEY"])
-    ]
+    API_KEYS = []
+    # 1. 기본 키 확인
+    if "GOOGLE_API_KEY" in st.secrets:
+        API_KEYS.append(st.secrets["GOOGLE_API_KEY"])
+    
+    # 2. 번호 붙은 키들 확인 (1번부터 20번까지 넉넉하게 체크)
+    for i in range(1, 21):
+        key_name = f"GOOGLE_API_KEY_{i}"
+        if key_name in st.secrets:
+            API_KEYS.append(st.secrets[key_name])
+            
+    # 중복 제거 및 유효성 체크
+    API_KEYS = list(set([k for k in API_KEYS if k]))
+    
+    if not API_KEYS:
+        st.error("설정 오류: API 키가 하나도 없습니다.")
+        st.stop()
+        
     IMGBB_API_KEY = st.secrets["IMGBB_API_KEY"]
 except:
-    st.error("설정 오류: st.secrets에 API 키가 없습니다.")
+    st.error("설정 오류: Secrets 접근 실패")
     st.stop()
 
-MODELS_TO_TRY = [
-    "gemini-2.5-pro", 
-    "gemini-3-pro-preview",
-    "gemini-2.5-flash",
-    "gemini-3-flash-preview",
-    "gemini-2.0-flash-lite-001"
+# 🔥 [업그레이드] 용도별 모델 분리 (하이브리드 전략)
+FLASH_MODELS = [
+    "gemini-3-flash-preview",    # 1순위: 최신 3세대 스피드
+    "gemini-2.5-flash",          # 2순위: 안정성
+    "gemini-2.0-flash"           # 3순위: 비상용
+]
+
+PRO_MODELS = [
+    "gemini-3-pro-preview",      # 1순위: 최강 지능
+    "gemini-2.5-pro",            # 2순위: 검증된 고성능
+    "deep-research-pro-preview-12-2025" # 3순위: 심층 분석 (혹시 몰라 추가)
 ]
 
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
@@ -131,7 +148,7 @@ def save_result_to_sheet(student_name, subject, unit, summary, link):
         sheet = client.open_by_key(SHEET_ID).worksheet("results")
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         sheet.append_row([now, student_name, subject, unit, summary, link, "", 0])
-        st.toast("학습 기록이 저장되었습니다!", icon="💾")
+        st.toast("✅ 학습 기록 저장 완료!", icon="💾")
     except: pass
 
 def increment_review_count(row_date, student_name):
@@ -227,36 +244,70 @@ def create_solution_image(original_image, hints):
     plt.close(fig)
     return Image.open(buf)
 
-def generate_content_with_fallback(prompt, image=None):
+# 🔥 [핵심 업그레이드] 스마트 하이브리드 AI 호출 함수
+def generate_content_with_fallback(prompt, image=None, mode="chat"):
+    """
+    mode="chat": 튜터링 대화 (빠른 Flash 모델 사용)
+    mode="final": 최종 정답 분석 (똑똑한 Pro 모델 사용)
+    """
     last_error = None
-    for model_name in MODELS_TO_TRY:
-        try:
-            current_key_idx = st.session_state['key_index']
-            current_key = API_KEYS[current_key_idx]
-            genai.configure(api_key=current_key)
-            model = genai.GenerativeModel(model_name)
-            
-            if image:
-                response = model.generate_content([prompt, image])
-            else:
-                response = model.generate_content(prompt)
+    
+    # 1. 모드에 따라 사용할 모델 리스트 결정
+    target_models = FLASH_MODELS if mode == "chat" else PRO_MODELS
+    
+    # 2. 키 인덱스를 무작위로 섞음 (로드 밸런싱)
+    key_indices = list(range(len(API_KEYS)))
+    random.shuffle(key_indices)
+
+    for model_name in target_models:
+        # 해당 모델로 모든 키를 찔러봄
+        for key_idx in key_indices:
+            current_key = API_KEYS[key_idx]
+            try:
+                genai.configure(api_key=current_key)
+                model = genai.GenerativeModel(model_name)
                 
-            st.session_state['key_index'] = (current_key_idx + 1) % len(API_KEYS)
-            return response.text, f"✅ {model_name}"
-        except Exception as e:
-            last_error = e
-            st.session_state['key_index'] = (st.session_state['key_index'] + 1) % len(API_KEYS)
-            time.sleep(1) 
-            continue
+                if image:
+                    response = model.generate_content([prompt, image])
+                else:
+                    response = model.generate_content(prompt)
+                
+                return response.text, f"✅ {model_name}"
+            except Exception as e:
+                last_error = e
+                time.sleep(0.5) 
+                continue
+    
+    # 3. 만약 Pro(최종분석)에서 다 실패하면, Flash(빠른모델)로라도 시도 (최후의 보루)
+    if mode == "final":
+        for model_name in FLASH_MODELS:
+            for key_idx in key_indices:
+                current_key = API_KEYS[key_idx]
+                try:
+                    genai.configure(api_key=current_key)
+                    model = genai.GenerativeModel(model_name)
+                    if image: response = model.generate_content([prompt, image])
+                    else: response = model.generate_content(prompt)
+                    return response.text, f"⚠️ {model_name} (Backup)"
+                except: continue
+
     raise last_error
 
+def sanitize_json(text):
+    pattern = r'\\(?![\\/bfnrtu"])' 
+    return re.sub(pattern, r'\\\\', text)
+
 # ----------------------------------------------------------
-# [3] 로그인
+# [3] 로그인 & 상태 관리
 # ----------------------------------------------------------
 if 'is_logged_in' not in st.session_state: st.session_state['is_logged_in'] = False
 if 'analysis_result' not in st.session_state: st.session_state['analysis_result'] = None
 if 'gemini_image' not in st.session_state: st.session_state['gemini_image'] = None
 if 'solution_image' not in st.session_state: st.session_state['solution_image'] = None
+
+if 'chat_active' not in st.session_state: st.session_state['chat_active'] = False
+if 'chat_messages' not in st.session_state: st.session_state['chat_messages'] = []
+if 'self_note' not in st.session_state: st.session_state['self_note'] = ""
 
 def login_page():
     st.markdown("<h1 style='text-align: center; color:#f97316;'>🏫 MathAI Pro 로그인</h1>", unsafe_allow_html=True)
@@ -307,6 +358,15 @@ st.markdown("""
 with st.sidebar:
     st.markdown(f"### 👋 반가워요, {st.session_state['user_name']}님!")
     menu = st.radio("학습 메뉴", ["📸 문제 풀기", "📒 내 오답 노트"])
+    
+    if st.button("🔄 초기화 (새 문제)"):
+        st.session_state['chat_active'] = False
+        st.session_state['chat_messages'] = []
+        st.session_state['analysis_result'] = None
+        st.session_state['gemini_image'] = None
+        st.session_state['self_note'] = ""
+        st.rerun()
+        
     if st.button("로그아웃"):
         st.session_state['is_logged_in'] = False
         st.rerun()
@@ -315,196 +375,196 @@ if menu == "📸 문제 풀기":
     col_spacer1, col_main, col_spacer2 = st.columns([0.5, 10, 0.5])
     
     with col_main:
-        st.markdown("""
-        <div class="mb-6">
-            <h1 class="text-2xl font-bold text-[#111418]">새 문제 분석</h1>
-            <p class="text-slate-500 text-sm">AI 1타 강사가 풀이와 숏컷, 그리고 첨삭까지 제공합니다.</p>
-        </div>
-        """, unsafe_allow_html=True)
+        if not st.session_state['chat_active']:
+            # [Step 1] 문제 업로드 화면
+            st.markdown("""
+            <div class="mb-6">
+                <h1 class="text-2xl font-bold text-[#111418]">AI 튜터에게 질문하기</h1>
+                <p class="text-slate-500 text-sm">문제를 찍으면 바로 답을 주지 않고, 선생님처럼 차근차근 알려줍니다.</p>
+            </div>
+            """, unsafe_allow_html=True)
 
-        left_col, right_col = st.columns([1, 1.2], gap="medium")
-
-        with left_col:
-            st.markdown('<div class="math-card h-full">', unsafe_allow_html=True)
-            st.markdown('<h3 class="font-bold mb-4 text-slate-700">📤 문제 업로드</h3>', unsafe_allow_html=True)
-            
-            # 🔥 [수정됨] 원장님 요청: 2022/2015 교육과정 디테일한 구분 복구
-            subject_options = [
-                "선택안함", 
-                "초3 수학", "초4 수학", "초5 수학", "초6 수학",
-                "중1 수학", "중2 수학", "중3 수학",
-                "--- 2022 개정 교육과정 (고1~) ---",
-                "[22개정] 공통수학1", "[22개정] 공통수학2", 
-                "[22개정] 대수", "[22개정] 미적분I", 
-                "[22개정] 미적분II", "[22개정] 확률과 통계", "[22개정] 기하",
-                "--- 2015 개정 교육과정 (고2~3) ---",
-                "[15개정] 수학(상)", "[15개정] 수학(하)", 
-                "[15개정] 수학I", "[15개정] 수학II", 
-                "[15개정] 미적분", "[15개정] 확률과 통계", "[15개정] 기하"
-            ]
-            selected_subject = st.selectbox("과목/단원", subject_options, label_visibility="collapsed")
-            
-            # 🔥 [수정됨] 과목 미선택 시 업로드 막기 (로직 복구)
-            if selected_subject == "선택안함" or "---" in selected_subject:
-                st.warning("👆 먼저 위에서 **과목을 선택**해주세요. (과목 선택 후에만 문제를 올릴 수 있습니다)")
-                img_file = None
-            else:
-                tab1, tab2 = st.tabs(["파일 선택", "카메라"])
-                img_file = None
-                with tab1:
-                    img_file = st.file_uploader("이미지", type=['jpg', 'png'], label_visibility="collapsed")
-                with tab2:
-                    cam = st.camera_input("촬영", label_visibility="collapsed")
-                    if cam: img_file = cam
-
-            if img_file and selected_subject != "선택안함" and "---" not in selected_subject:
-                image = Image.open(img_file)
-                if image.mode in ("RGBA", "P"): image = image.convert("RGB")
-                st.image(image, caption="선택한 문제", use_container_width=True)
+            left_col, right_col = st.columns([1, 1.2], gap="medium")
+            with left_col:
+                st.markdown('<div class="math-card h-full">', unsafe_allow_html=True)
+                st.markdown('<h3 class="font-bold mb-4 text-slate-700">📤 문제 업로드</h3>', unsafe_allow_html=True)
                 
-                st.markdown("<br>", unsafe_allow_html=True)
+                subject_options = [
+                    "선택안함", 
+                    "초3 수학", "초4 수학", "초5 수학", "초6 수학",
+                    "중1 수학", "중2 수학", "중3 수학",
+                    "--- 2022 개정 교육과정 (고1~) ---",
+                    "[22개정] 공통수학1", "[22개정] 공통수학2", 
+                    "[22개정] 대수", "[22개정] 미적분I", 
+                    "[22개정] 미적분II", "[22개정] 확률과 통계", "[22개정] 기하",
+                    "--- 2015 개정 교육과정 (고2~3) ---",
+                    "[15개정] 수학(상)", "[15개정] 수학(하)", 
+                    "[15개정] 수학I", "[15개정] 수학II", 
+                    "[15개정] 미적분", "[15개정] 확률과 통계", "[15개정] 기하"
+                ]
+                selected_subject = st.selectbox("과목/단원", subject_options, label_visibility="collapsed")
                 
-                if st.button("✨ AI 분석 시작", type="primary"):
-                    with st.spinner("AI 선생님이 문제를 분석 중입니다..."):
+                if selected_subject == "선택안함" or "---" in selected_subject:
+                    st.warning("👆 먼저 과목을 선택해주세요.")
+                    img_file = None
+                else:
+                    tab1, tab2 = st.tabs(["파일 선택", "카메라"])
+                    img_file = None
+                    with tab1:
+                        img_file = st.file_uploader("이미지", type=['jpg', 'png'], label_visibility="collapsed")
+                    with tab2:
+                        cam = st.camera_input("촬영", label_visibility="collapsed")
+                        if cam: img_file = cam
+
+                if img_file:
+                    image = Image.open(img_file)
+                    if image.mode in ("RGBA", "P"): image = image.convert("RGB")
+                    st.image(image, caption="선택한 문제", use_container_width=True)
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    
+                    if st.button("💬 AI 튜터링 시작", type="primary"):
+                        st.session_state['gemini_image'] = resize_image(image)
+                        st.session_state['selected_subject'] = selected_subject
+                        st.session_state['chat_active'] = True
+                        st.session_state['chat_messages'] = [
+                            {"role": "ai", "content": "문제를 확인했어! 🤔\n\n바로 답을 알려주기보다는 같이 풀어보면 실력이 더 늘 거야.\n\n이 문제에서 **어떤 부분이 가장 헷갈리거나 막혔니?** 편하게 말해봐!"}
+                        ]
+                        st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+            
+            with right_col:
+                st.markdown("""
+                <div class="math-card flex flex-col items-center justify-center text-center h-[400px]">
+                    <span class="material-symbols-outlined text-gray-300 text-[60px] mb-4">chat_bubble</span>
+                    <h3 class="text-lg font-bold text-slate-700 mb-2">AI 과외 선생님 대기 중</h3>
+                    <p class="text-slate-500 text-sm">문제를 올리고 튜터링을 시작해보세요.</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+        else:
+            # [Step 2] 튜터링 & 결과 화면
+            chat_col_left, chat_col_right = st.columns([1, 1.2], gap="medium")
+            
+            with chat_col_left:
+                st.markdown('<div class="math-card">', unsafe_allow_html=True)
+                st.markdown('<h3 class="font-bold mb-2 text-slate-700">📄 문제 이미지</h3>', unsafe_allow_html=True)
+                if st.session_state['gemini_image']:
+                    st.image(st.session_state['gemini_image'], use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+                
+                st.markdown('<div class="math-card" style="border-left: 5px solid #f97316;">', unsafe_allow_html=True)
+                st.markdown('<h3 class="font-bold mb-2 text-[#f97316]">✍️ 나의 깨달음 정리 (Self-Note)</h3>', unsafe_allow_html=True)
+                st.markdown('<p class="text-xs text-slate-500 mb-2">선생님과 대화하며 알게 된 힌트나 핵심을 적어보세요. (나중에 오답노트에 저장됩니다)</p>', unsafe_allow_html=True)
+                
+                self_note_input = st.text_area("내용 입력", value=st.session_state['self_note'], height=100, label_visibility="collapsed", placeholder="예: 판별식 D가 0보다 커야 실근 2개를 갖는다는 걸 깜빡했다.")
+                if st.button("💾 정리 내용 임시 저장"):
+                    st.session_state['self_note'] = self_note_input
+                    st.toast("정리 내용이 저장되었습니다.")
+                st.markdown('</div>', unsafe_allow_html=True)
+
+            with chat_col_right:
+                st.markdown('<div class="math-card h-[600px] overflow-y-auto flex flex-col relative">', unsafe_allow_html=True)
+                st.markdown('<h3 class="font-bold mb-4 text-slate-700 sticky top-0 bg-white z-10 py-2 border-b">💬 AI 튜터와의 대화</h3>', unsafe_allow_html=True)
+                
+                for msg in st.session_state['chat_messages']:
+                    if msg['role'] == 'ai':
+                        with st.chat_message("assistant", avatar="🤖"):
+                            st.write(msg['content'])
+                    else:
+                        with st.chat_message("user", avatar="🧑‍🎓"):
+                            st.write(msg['content'])
+
+                if not st.session_state['analysis_result']:
+                    if prompt := st.chat_input("질문을 입력하세요 (예: 여기서 어떻게 식을 세워?)"):
+                        st.session_state['chat_messages'].append({"role": "user", "content": prompt})
+                        st.rerun()
+
+                if st.session_state['chat_messages'] and st.session_state['chat_messages'][-1]['role'] == 'user' and not st.session_state['analysis_result']:
+                    with st.spinner("선생님이 답변을 생각 중입니다..."):
                         try:
-                            processed_img = resize_image(image)
-                            st.session_state['gemini_image'] = processed_img
-                            tone = "불친절하고 딱딱한, 결론과 논리만 말하는 스타일"
-                            
-                            # 🔥 [수정 유지] SyntaxError 해결을 위한 try-except 내 들여쓰기 교정 완료
-                            prompt = f"""
-                            당신은 대한민국 최고의 수능 수학 '1타 강사'입니다. (과목:{selected_subject}, 말투:{tone})
+                            history_text = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state['chat_messages']])
+                            tutor_prompt = f"""
+                            당신은 친절하지만 핵심을 찌르는 수학 '튜터'입니다. 과목: {st.session_state['selected_subject']}
+                            [대화 내역] {history_text}
+                            [지시사항]
+                            1. 정답을 바로 주지 말고 힌트나 역질문을 하세요.
+                            2. 수식은 LaTeX($$)를 사용하세요.
+                            3. 짧고 명확하게(3문장 이내) 답변하세요.
+                            """
+                            # 🔥 채팅은 'chat' 모드로 호출 (Flash 모델)
+                            response_text, _ = generate_content_with_fallback(tutor_prompt, st.session_state['gemini_image'], mode="chat")
+                            st.session_state['chat_messages'].append({"role": "ai", "content": response_text})
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"채팅 오류: {e}")
+
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                if not st.session_state['analysis_result']:
+                    st.warning("💡 충분히 고민하고 정리를 마쳤다면, 아래 버튼을 눌러 해설을 확인하세요.")
+                    if st.button("🔐 정답 및 1타 풀이 공개 (저장)", type="primary"):
+                        with st.spinner("최종 리포트를 생성하고 오답노트에 저장 중입니다..."):
+                            final_prompt = f"""
+                            당신은 대한민국 1타 수학 강사입니다. 
                             이미지를 분석하여 JSON 형식으로 결과를 출력하세요.
-
-                            **[필수 지침]**
-                            1. **무조건 JSON 포맷**만 출력하세요. 마크다운(```json)이나 사족을 달지 마세요.
-                            2. 수식은 LaTeX 포맷($...$)을 사용하세요.
-                            3. **숏컷(Shortcut)**을 최우선으로 적용하여 풀이를 작성하세요.
-
-                            **[출력해야 할 JSON 구조]**
+                            **[학생의 Self-Note 내용]** {st.session_state['self_note']}
+                            **[필수 지침]** 1. 무조건 JSON 포맷만 출력. 2. 숏컷(Shortcut) 필수 포함.
+                            **[출력 JSON 구조]**
                             {{
                                 "formula": "인식된 수식 (LaTeX)",
-                                "concept": "핵심 개념 (예: 3차함수 비율 관계)",
-                                "hint_for_image": "이미지용 3줄 힌트 (LaTeX 금지, 텍스트만)",
-                                "solution": "상세 풀이 (정석 풀이, 단계별 논리)",
-                                "shortcut": "1타 강사의 숏컷 풀이 (직관적, 빠른 풀이)",
-                                "correction": "학생 손글씨 첨삭 (없으면 '없음' 출력)",
+                                "concept": "핵심 개념",
+                                "hint_for_image": "이미지용 힌트 (텍스트만)",
+                                "solution": "상세 정석 풀이",
+                                "shortcut": "1타 강사의 숏컷 풀이",
+                                "correction": "학생의 풀이 또는 Self-Note에 대한 피드백/첨삭",
                                 "twin_problem": "쌍둥이 문제 (LaTeX)",
-                                "twin_answer": "쌍둥이 문제 정답 및 해설 (LaTeX)"
+                                "twin_answer": "쌍둥이 문제 정답 및 해설"
                             }}
                             """
-                            
-                            result_text, used_model = generate_content_with_fallback(prompt, processed_img)
-                            
                             try:
-                                clean_json = result_text.replace("```json", "").replace("```", "").strip()
-                                json_match = re.search(r'\{[\s\S]*\}', clean_json)
-                                if json_match:
-                                    clean_json = json_match.group(0)
+                                # 🔥 최종 분석은 'final' 모드로 호출 (Pro 모델)
+                                res_text, _ = generate_content_with_fallback(final_prompt, st.session_state['gemini_image'], mode="final")
+                                clean_json = sanitize_json(res_text.replace("```json", "").replace("```", "").strip())
+                                match = re.search(r'\{[\s\S]*\}', clean_json)
+                                if match: clean_json = match.group(0)
                                 
                                 data = json.loads(clean_json)
+                                data['my_self_note'] = st.session_state['self_note']
                                 st.session_state['analysis_result'] = data
                                 
                                 st.session_state['solution_image'] = create_solution_image(
-                                    processed_img, data.get('hint_for_image', '힌트 없음')
+                                    st.session_state['gemini_image'], data.get('hint_for_image', '힌트 없음')
                                 )
-                                
                                 img_byte_arr = io.BytesIO()
                                 st.session_state['solution_image'].save(img_byte_arr, format='JPEG', quality=90)
                                 link = upload_to_imgbb(img_byte_arr.getvalue()) or "이미지_없음"
+                                
                                 save_result_to_sheet(
                                     st.session_state['user_name'], 
-                                    selected_subject, 
+                                    st.session_state['selected_subject'], 
                                     data.get('concept'), 
                                     str(data), 
                                     link
                                 )
-                                
-                            except json.JSONDecodeError as e:
-                                st.error("⚠️ AI 응답을 해석하는 데 실패했습니다.")
-                                with st.expander("개발자용 디버깅"):
-                                    st.write(e)
-                                    st.code(result_text)
-                                
-                        except Exception as e:
-                            st.error(f"시스템 오류 발생: {e}")
-            
-            st.markdown('</div>', unsafe_allow_html=True)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"분석 오류: {e}")
 
-        with right_col:
-            if st.session_state['analysis_result']:
-                res = st.session_state['analysis_result']
-                
-                st.markdown('<div class="math-card">', unsafe_allow_html=True)
-                st.markdown("""
-                    <div class="flex items-center justify-between mb-2">
-                        <h3 class="font-bold text-slate-800 flex items-center gap-2">
-                            <span class="material-symbols-outlined text-[#f97316]">auto_awesome</span>
-                            AI 인식 결과
-                        </h3>
-                        <span class="text-xs font-bold text-green-600 bg-green-100 px-2 py-1 rounded-full">분석 완료</span>
-                    </div>
-                """, unsafe_allow_html=True)
-                
-                formula_text = res.get('formula', '수식 인식 불가')
-                if "$" not in formula_text and len(formula_text) > 2:
-                    formula_text = f"${formula_text}$"
-                    
-                st.markdown(f"<div class='bg-gray-50 rounded-lg p-4 flex items-center justify-center border border-gray-200 text-xl text-slate-800 font-serif italic'>", unsafe_allow_html=True)
-                st.markdown(formula_text) 
-                st.markdown("</div></div>", unsafe_allow_html=True)
-                
-                st.markdown('<div class="math-card">', unsafe_allow_html=True)
-                st.markdown('<h4 class="font-bold text-sm text-slate-500 mb-3 uppercase tracking-wider">상세 풀이</h4>', unsafe_allow_html=True)
-                
-                concept_text = res.get('concept', '')
-                st.markdown(f"<p class='font-bold text-sm text-slate-800 mb-1'>📘 핵심 개념: {concept_text}</p>", unsafe_allow_html=True)
-                
-                solution_text = res.get('solution', '').replace('\n', '  \n') 
-                st.markdown('<div class="text-sm text-slate-600 leading-relaxed space-y-2 pl-4 border-l-2 border-gray-100">', unsafe_allow_html=True)
-                st.markdown(solution_text)
-                st.markdown('</div>', unsafe_allow_html=True)
-
-                shortcut_text = res.get('shortcut', '').replace('\n', '  \n')
-                st.markdown('<div class="mt-4"><p class="font-bold text-sm text-[#f97316] mb-1">⚡ 1타 강사 숏컷</p>', unsafe_allow_html=True)
-                st.info(shortcut_text)
-                st.markdown('</div>', unsafe_allow_html=True)
-
-                correction_text = res.get('correction', '').replace('\n', '  \n')
-                if correction_text and correction_text != "없음":
-                    st.markdown('<div class="mt-6 pt-4 border-t border-gray-100">', unsafe_allow_html=True)
-                    st.markdown('<p class="text-sm font-bold text-red-500 mb-2">🚩 첨삭 노트</p>', unsafe_allow_html=True)
-                    st.write(correction_text)
-                    st.markdown('</div>', unsafe_allow_html=True)
-                
-                st.markdown('</div>', unsafe_allow_html=True)
-                
-                st.markdown('<div class="math-card">', unsafe_allow_html=True)
-                st.markdown('<h4 class="font-bold text-sm text-slate-500 mb-3 uppercase tracking-wider">📝 쌍둥이 문제</h4>', unsafe_allow_html=True)
-                
-                twin_prob = res.get('twin_problem', '생성된 문제 없음').replace('\n', '  \n')
-                st.markdown('<div class="p-4 bg-slate-50 rounded-lg border border-slate-200 text-slate-800">', unsafe_allow_html=True)
-                st.markdown(twin_prob)
-                st.markdown('</div>', unsafe_allow_html=True)
-                
-                with st.expander("🔐 정답 및 해설 보기"):
-                    twin_ans = res.get('twin_answer', '해설 없음').replace('\n', '  \n')
-                    st.markdown(twin_ans)
-                st.markdown('</div>', unsafe_allow_html=True)
-
-                if st.session_state['solution_image']:
-                    st.markdown('<div class="math-card">', unsafe_allow_html=True)
-                    st.write("🖼️ **오답 노트용 요약 이미지**")
-                    st.image(st.session_state['solution_image'], use_container_width=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
-            else:
-                st.markdown("""
-                <div class="math-card flex flex-col items-center justify-center text-center h-[400px]">
-                    <span class="material-symbols-outlined text-gray-300 text-[60px] mb-4">fact_check</span>
-                    <h3 class="text-lg font-bold text-slate-700 mb-2">분석 대기 중</h3>
-                    <p class="text-slate-500 text-sm">왼쪽에서 문제를 업로드하고<br>분석 버튼을 눌러주세요.</p>
-                </div>
-                """, unsafe_allow_html=True)
+                if st.session_state['analysis_result']:
+                    res = st.session_state['analysis_result']
+                    st.success("🎉 분석 완료! 오답노트에 저장되었습니다.")
+                    with st.expander("📘 1타 강사의 상세 풀이 & 숏컷", expanded=True):
+                        st.markdown(f"**핵심 개념:** {res.get('concept')}")
+                        st.markdown("---")
+                        st.markdown(res.get('solution').replace('\n', '  \n'))
+                        st.markdown("---")
+                        st.info(f"⚡ **숏컷:** {res.get('shortcut')}")
+                    with st.expander("📝 쌍둥이 문제 확인"):
+                        st.write(res.get('twin_problem'))
+                        if st.button("정답 보기"):
+                            st.write(res.get('twin_answer'))
+                    if st.session_state['solution_image']:
+                        st.image(st.session_state['solution_image'], caption="오답노트 이미지", use_container_width=True)
 
 elif menu == "📒 내 오답 노트":
     st.markdown("""
@@ -512,7 +572,6 @@ elif menu == "📒 내 오답 노트":
         <h1 class="text-2xl font-bold text-[#111418]">내 오답 노트 리스트</h1>
     </div>
     """, unsafe_allow_html=True)
-    
     df = load_user_results(st.session_state['user_name'])
     if not df.empty:
         my_notes = df[df['이름'] == st.session_state['user_name']].sort_values(by='날짜', ascending=False)
@@ -522,32 +581,32 @@ elif menu == "📒 내 오답 노트":
                 with col_img:
                     if row.get('링크') and row.get('링크') != "이미지_없음":
                         st.image(row.get('링크'), use_container_width=True)
-                    else:
-                        st.info("이미지 없음")
+                    else: st.info("이미지 없음")
                 with col_txt:
                     try:
                         content_json = json.loads(row.get('내용').replace("'", "\""))
-                        
+                        if 'my_self_note' in content_json and content_json['my_self_note']:
+                            st.markdown(f"""
+                            <div class="bg-orange-50 p-3 rounded-lg border border-orange-200 mb-3">
+                                <span class="font-bold text-[#f97316]">✍️ 나의 정리:</span><br>
+                                {content_json['my_self_note']}
+                            </div>
+                            """, unsafe_allow_html=True)
                         st.markdown(f"**📘 개념:** {content_json.get('concept')}")
                         st.markdown("**📝 풀이:**")
                         sol_clean = content_json.get('solution', '').replace('\n', '  \n')
                         st.markdown(sol_clean)
-                        
                         st.info(f"⚡ 숏컷: {content_json.get('shortcut')}")
-                        
                         if content_json.get('twin_problem'):
                             st.divider()
                             st.markdown("**📝 쌍둥이 문제**")
                             st.markdown(content_json.get('twin_problem').replace('\n', '  \n'))
                             with st.expander("정답 보기"):
                                 st.markdown(content_json.get('twin_answer').replace('\n', '  \n'))
-                    except:
-                        st.write(row.get('내용'))
-                
+                    except: st.write(row.get('내용'))
                 if st.button("✅ 오늘 복습 완료", key=f"rev_{index}"):
                     if increment_review_count(row.get('날짜'), row.get('이름')):
                         st.toast("복습 횟수가 증가했습니다!")
                         time.sleep(1)
                         st.rerun()
-    else:
-        st.info("아직 저장된 오답 노트가 없습니다.")
+    else: st.info("아직 저장된 오답 노트가 없습니다.")
