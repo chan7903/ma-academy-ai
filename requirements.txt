@@ -8,4 +8,7 @@ google-api-python-client
 matplotlib
 numpy
 opencv-python-headless
-matplotlib
+requests
+streamlit-drawable-canvas
+streamlit-mic-recorder
+SpeechRecognition
