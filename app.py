@@ -142,7 +142,6 @@ def upload_to_imgbb(image_bytes):
         return None
     except: return None
 
-# 🔥 [수정] 저장 시 타임스탬프를 반환하도록 변경 (나중에 업데이트하기 위해)
 def save_result_to_sheet(student_name, subject, unit, summary, link, chat_log):
     client = get_sheet_client()
     if not client: return None
@@ -150,39 +149,34 @@ def save_result_to_sheet(student_name, subject, unit, summary, link, chat_log):
         sheet = client.open_by_key(SHEET_ID).worksheet("results")
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # summary(JSON) 안에 채팅 기록도 포함해서 저장
         try:
-            data = json.loads(summary.replace("'", "\"")) # 안전하게 파싱 시도
+            data = json.loads(summary.replace("'", "\""))
             data['chat_history'] = chat_log
             final_content = json.dumps(data, ensure_ascii=False)
         except:
-            final_content = summary # 파싱 실패시 원본 사용
+            final_content = summary 
 
         sheet.append_row([now, student_name, subject, unit, final_content, link, "", 0])
         st.toast("✅ 학습 기록 저장 완료!", icon="💾")
-        return now # 저장된 시간(키값) 반환
+        return now 
     except: return None
 
-# 🔥 [신규] 기존 저장된 내용에 대화 로그만 업데이트하는 함수
 def update_chat_log_in_sheet(student_name, target_time, new_chat_log):
     client = get_sheet_client()
     if not client: return False
     try:
         sheet = client.open_by_key(SHEET_ID).worksheet("results")
-        # 모든 기록을 가져와서 타겟 찾기 (최적화 가능하지만 일단 안전하게)
         records = sheet.get_all_records()
         row_idx = -1
         
         for i, record in enumerate(records):
             if str(record.get('날짜')) == str(target_time) and str(record.get('이름')) == str(student_name):
-                row_idx = i + 2 # 헤더(1) + 0-index(1) correction
+                row_idx = i + 2
                 current_content_str = record.get('내용')
                 break
         
         if row_idx != -1:
-            # 기존 내용 파싱해서 chat_history만 업데이트
             try:
-                # ast.literal_eval이 더 강력함
                 try:
                     data = json.loads(current_content_str)
                 except:
@@ -190,7 +184,7 @@ def update_chat_log_in_sheet(student_name, target_time, new_chat_log):
                 
                 data['chat_history'] = new_chat_log
                 updated_content = json.dumps(data, ensure_ascii=False)
-                sheet.update_cell(row_idx, 5, updated_content) # 5번째 열이 '내용'
+                sheet.update_cell(row_idx, 5, updated_content)
                 return True
             except: return False
         return False
@@ -324,15 +318,14 @@ def generate_content_with_fallback(prompt, image=None, mode="chat"):
 
     raise last_error
 
-# 🔥 [강력 수정] JSON 파싱 오류 완전 해결 로직
+# 🔥 [최종 수정] JSON 파싱 오류 완전 박멸 (Aggressive Escaping)
 def sanitize_json(text):
     # 1. 마크다운 코드 블록 제거
     text = text.replace("```json", "").replace("```", "").strip()
     
-    # 2. LaTeX 역슬래시가 JSON을 깨뜨리지 않도록 이중 역슬래시로 치환
-    # (단, 이미 이중인 것과 JSON 제어문자 \n, \t, \" 등은 제외)
-    # 정규식: "역슬래시 뒤에 [ " \ / b f n r t u ] 가 오지 않는 경우"를 찾음
-    pattern = r'\\(?![\\/bfnrtu"])'
+    # 2. 강력한 Escape: 따옴표(") 앞에 있는 백슬래시가 아니면 무조건 두 개(\\)로 만듦
+    # 이렇게 하면 \frac, \u1234, \n, \t 등 모든 특수 문자가 '문자 그대로' 보존됨.
+    pattern = r'\\(?!["])' 
     text = re.sub(pattern, r'\\\\', text)
     
     return text
@@ -350,8 +343,8 @@ if 'chat_messages' not in st.session_state: st.session_state['chat_messages'] = 
 if 'self_note' not in st.session_state: st.session_state['self_note'] = ""
 if 'last_canvas_image' not in st.session_state: st.session_state['last_canvas_image'] = None
 if 'enable_canvas' not in st.session_state: st.session_state['enable_canvas'] = False
-if 'saved_timestamp' not in st.session_state: st.session_state['saved_timestamp'] = None # 🔥 저장된 시간 기억용
-if 'last_saved_chat_len' not in st.session_state: st.session_state['last_saved_chat_len'] = 0 # 🔥 마지막 저장 시점 대화 길이
+if 'saved_timestamp' not in st.session_state: st.session_state['saved_timestamp'] = None 
+if 'last_saved_chat_len' not in st.session_state: st.session_state['last_saved_chat_len'] = 0 
 
 def login_page():
     st.markdown("<h1 style='text-align: center; color:#f97316;'>🏫 MathAI Pro 로그인</h1>", unsafe_allow_html=True)
@@ -530,9 +523,7 @@ if menu == "📸 문제 풀기":
                     with st.chat_message("user", avatar="🧑‍🎓"):
                         st.write(msg['content'])
 
-            # 🔥 [V3.2] 해설 이후 추가 저장 버튼 표시
             if st.session_state['analysis_result'] and st.session_state['saved_timestamp']:
-                # 채팅 길이가 저장했을 때보다 길어졌다면 업데이트 버튼 활성화
                 if len(st.session_state['chat_messages']) > st.session_state['last_saved_chat_len']:
                     if st.button("💾 추가된 대화 저장하기", type="secondary", use_container_width=True):
                         if update_chat_log_in_sheet(st.session_state['user_name'], st.session_state['saved_timestamp'], st.session_state['chat_messages']):
@@ -541,7 +532,6 @@ if menu == "📸 문제 풀기":
                         else:
                             st.error("저장 실패")
 
-            # 🔥 [V3.2] 채팅 입력창 (분석 전/후 모두 가능)
             col_mic, col_text = st.columns([0.1, 0.9])
             with col_mic:
                 voice_text = speech_to_text(language='ko', start_prompt="🎤", stop_prompt="⏹️", just_once=False, use_container_width=True)
@@ -556,13 +546,11 @@ if menu == "📸 문제 풀기":
                 st.session_state['chat_messages'].append({"role": "user", "content": prompt})
                 st.rerun()
 
-            # 🔥 [V3.2] AI 응답 로직 (Context Injection 적용)
             if st.session_state['chat_messages'] and st.session_state['chat_messages'][-1]['role'] == 'user':
                 with st.spinner("선생님이 답변을 생각 중입니다..."):
                     try:
                         history_text = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state['chat_messages']])
                         
-                        # [핵심] 해설이 나왔다면, 그 해설 내용을 기억에 주입!
                         context_injection = ""
                         if st.session_state['analysis_result']:
                             res = st.session_state['analysis_result']
@@ -648,8 +636,10 @@ if menu == "📸 문제 풀기":
                         """
                         try:
                             res_text, _ = generate_content_with_fallback(final_prompt, st.session_state['gemini_image'], mode="final")
-                            # 🔥 [V3.2] 강력한 Sanitizer 적용
+                            
+                            # 🔥 [V3.3] 최종 방어막: 모든 백슬래시를 강제로 두 번 칠함
                             clean_json = sanitize_json(res_text)
+                            
                             match = re.search(r'\{[\s\S]*\}', clean_json)
                             if match: clean_json = match.group(0)
                             
@@ -664,7 +654,6 @@ if menu == "📸 문제 풀기":
                             st.session_state['solution_image'].save(img_byte_arr, format='JPEG', quality=90)
                             link = upload_to_imgbb(img_byte_arr.getvalue()) or "이미지_없음"
                             
-                            # 🔥 [V3.2] 저장 후 타임스탬프 기억 (업데이트용)
                             saved_ts = save_result_to_sheet(
                                 st.session_state['user_name'], 
                                 st.session_state['selected_subject'], 
@@ -714,7 +703,6 @@ elif menu == "📒 내 오답 노트":
                     else: st.info("이미지 없음")
                 with col_txt:
                     try:
-                        # 🔥 [V3.2] 데이터 파싱 시 ast.literal_eval 사용 (가장 안전)
                         content_json = ast.literal_eval(row.get('내용'))
                         
                         if 'my_self_note' in content_json and content_json['my_self_note']:
@@ -730,7 +718,6 @@ elif menu == "📒 내 오답 노트":
                         st.markdown(sol_clean)
                         st.info(f"⚡ 숏컷: {content_json.get('shortcut')}")
                         
-                        # 🔥 [V3.2] 채팅 기록이 있으면 보여주기
                         if 'chat_history' in content_json and content_json['chat_history']:
                             with st.expander("💬 튜터링 대화 기록 보기"):
                                 for msg in content_json['chat_history']:
