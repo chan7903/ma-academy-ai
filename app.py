@@ -149,12 +149,14 @@ def save_result_to_sheet(student_name, subject, unit, summary, link, chat_log):
         sheet = client.open_by_key(SHEET_ID).worksheet("results")
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
+        # summary는 이제 딕셔너리(Dict) 상태입니다. 문자열로 변환해 저장합니다.
         try:
-            data = json.loads(summary.replace("'", "\""))
+            # 딕셔너리에 채팅 기록 추가
+            data = summary.copy() 
             data['chat_history'] = chat_log
-            final_content = json.dumps(data, ensure_ascii=False)
+            final_content = str(data) # Python Dict 문자열 형태로 저장 (나중에 ast.literal_eval로 복구)
         except:
-            final_content = summary 
+            final_content = str(summary)
 
         sheet.append_row([now, student_name, subject, unit, final_content, link, "", 0])
         st.toast("✅ 학습 기록 저장 완료!", icon="💾")
@@ -177,13 +179,9 @@ def update_chat_log_in_sheet(student_name, target_time, new_chat_log):
         
         if row_idx != -1:
             try:
-                try:
-                    data = json.loads(current_content_str)
-                except:
-                    data = ast.literal_eval(current_content_str)
-                
+                data = ast.literal_eval(current_content_str)
                 data['chat_history'] = new_chat_log
-                updated_content = json.dumps(data, ensure_ascii=False)
+                updated_content = str(data)
                 sheet.update_cell(row_idx, 5, updated_content)
                 return True
             except: return False
@@ -228,8 +226,8 @@ def load_students_from_sheet():
 
 def clean_text_for_plot_safe(text):
     if not text: return ""
+    # Matplotlib에서 깨질만한 특수문자만 교체
     text = text.replace(r'\iff', '⇔').replace(r'\implies', '⇒')
-    text = text.replace(r'\le', '≤').replace(r'\ge', '≥')
     return text
 
 def text_for_plot_fallback(text):
@@ -318,20 +316,50 @@ def generate_content_with_fallback(prompt, image=None, mode="chat"):
 
     raise last_error
 
-# 🔥 [최종 수정] JSON 파싱 오류 완전 박멸 (V3.4)
-def sanitize_json(text):
-    # 1. 마크다운 제거
-    text = text.replace("```json", "").replace("```", "").strip()
+# 🔥 [V3.5 핵심] JSON 파싱 함수 제거하고, 텍스트 파싱 함수로 대체
+def parse_response_to_dict(text):
+    data = {}
     
-    # 2. 역슬래시 2배 강화 작전
-    # 원래 JSON에서 \f, \b, \t 등은 제어문자입니다. 
-    # 하지만 LaTeX의 \frac, \beta, \theta는 제어문자가 아니라 텍스트입니다.
-    # 따라서 따옴표(") 앞이 아닌 모든 역슬래시를 강제로 두 개(\\)로 만듭니다.
-    # 이렇게 하면 \frac -> \\frac이 되어 JSON이 "아, 이건 글자구나" 하고 인식합니다.
-    pattern = r'\\(?!["])' 
-    text = re.sub(pattern, r'\\\\', text)
-    
-    return text
+    # 안전하게 섹션별로 텍스트를 쪼갭니다.
+    # 정규식 대신 단순 문자열 분리가 훨씬 강력하고 오류가 적습니다.
+    try:
+        if "===CONCEPT===" in text:
+            data['concept'] = text.split("===CONCEPT===")[1].split("===HINT===")[0].strip()
+        else: data['concept'] = "개념 분석 실패"
+        
+        if "===HINT===" in text:
+            data['hint_for_image'] = text.split("===HINT===")[1].split("===SOLUTION===")[0].strip()
+        else: data['hint_for_image'] = "힌트 없음"
+        
+        if "===SOLUTION===" in text:
+            data['solution'] = text.split("===SOLUTION===")[1].split("===SHORTCUT===")[0].strip()
+        else: data['solution'] = "풀이 생성 실패"
+        
+        if "===SHORTCUT===" in text:
+            data['shortcut'] = text.split("===SHORTCUT===")[1].split("===CORRECTION===")[0].strip()
+        else: data['shortcut'] = "숏컷 없음"
+        
+        if "===CORRECTION===" in text:
+            data['correction'] = text.split("===CORRECTION===")[1].split("===TWIN_PROBLEM===")[0].strip()
+        else: data['correction'] = "첨삭 없음"
+
+        if "===TWIN_PROBLEM===" in text:
+             data['twin_problem'] = text.split("===TWIN_PROBLEM===")[1].split("===TWIN_ANSWER===")[0].strip()
+        else: data['twin_problem'] = "쌍둥이 문제 없음"
+
+        if "===TWIN_ANSWER===" in text:
+             data['twin_answer'] = text.split("===TWIN_ANSWER===")[1].strip()
+        else: data['twin_answer'] = "정답 없음"
+            
+    except Exception as e:
+        # 만약 형식이 완전히 무너졌다면 통째로 solution에 넣어버림 (데이터 유실 방지)
+        data['concept'] = "자동 분석"
+        data['solution'] = text
+        data['shortcut'] = ""
+        data['hint_for_image'] = ""
+
+    return data
+
 
 # ----------------------------------------------------------
 # [3] 로그인 & 상태 관리
@@ -605,48 +633,43 @@ if menu == "📸 문제 풀기":
                 st.info("💡 충분히 고민하고 정리를 마쳤다면, 아래 버튼을 눌러 해설을 확인하세요.")
                 if st.button("🔐 정답 및 1타 풀이 공개 (저장)", type="primary"):
                     with st.spinner("최종 리포트를 생성하고 오답노트에 저장 중입니다..."):
+                        # 🔥 [V3.5 핵심] JSON 강요 금지! 텍스트로 자유롭게 출력하게 함.
                         final_prompt = f"""
                         당신은 대한민국 최고의 수능 수학 '1타 강사'입니다. (과목:{st.session_state['selected_subject']})
-                        이미지를 분석하여 JSON 형식으로 결과를 출력하세요.
+                        이미지를 분석하여 다음 6가지 항목을 명확히 구분하여 출력하세요.
 
                         **[학생의 Self-Note 내용]**
                         {st.session_state['self_note']}
-                        (이 내용도 참고하여 첨삭이나 총평에 반영해주세요.)
-
-                        **[핵심 지침: 1타 강사의 숏컷(Shortcut) 우선 적용]**
-                        문제를 풀 때 다음의 '실전 스킬'이 적용 가능한지 최우선으로 검토하고, 가능하다면 **[2] 숏컷 풀이**에 반드시 상세히 포함하세요.
-                        1. **[다항함수]** 3차/4차함수 비율 관계(2:1, 3:1 법칙), 넓이 공식(1/6, 1/12 공식), 높이차 공식.
-                        2. **[수열]** 등차수열 합의 기하학적 해석(원점 지나는 2차함수), 등비수열의 덩어리 합 법칙, 등차중항(평균×개수).
-                        3. **[미분/적분]** 이차함수 두 점 사이 기울기 = 중점의 미분계수, 0 근처 근사(sin x ≈ x), 변곡접선 영역 구분.
-                        4. **[삼각/기하]** 단위원기반 해석, 사인법칙(지름의 지배), 코사인법칙(피타고라스 보정).
+                        (이 내용도 참고하여 'CORRECTION' 항목에 첨삭을 넣어주세요.)
 
                         **[필수 지침]**
-                        1. **무조건 JSON 포맷**만 출력하세요. 마크다운(```json)이나 사족을 달지 마세요.
-                        2. **[매우 중요] JSON 출력 시, LaTeX의 백슬래시(\)는 반드시 두 번(\\) 써야 합니다.** (예: "\\frac" (O), "\frac" (X))
-                        3. 숏컷(Shortcut)을 최우선으로 적용하여 풀이를 작성하세요.
+                        1. **절대 JSON 포맷을 사용하지 마세요.**
+                        2. 아래의 구분자(===...===)를 사용하여 내용을 명확히 나누세요.
+                        3. **모든 수식은 LaTeX($$)를 사용하세요.** (예: $x^2$)
+                        4. 숏컷(Shortcut)을 최우선으로 적용하세요.
 
-                        **[출력해야 할 JSON 구조]**
-                        {{
-                            "formula": "인식된 수식 (LaTeX)",
-                            "concept": "핵심 개념 (예: 3차함수 비율 관계)",
-                            "hint_for_image": "이미지용 3줄 힌트 (LaTeX 금지, 텍스트만)",
-                            "solution": "상세 풀이 (정석 풀이, 단계별 논리, 수식은 $...$ 사용)",
-                            "shortcut": "1타 강사의 숏컷 풀이 (직관적, 빠른 풀이, 수식은 $...$ 사용)",
-                            "correction": "학생의 풀이 또는 Self-Note에 대한 피드백/첨삭",
-                            "twin_problem": "쌍둥이 문제 (LaTeX)",
-                            "twin_answer": "쌍둥이 문제 정답 및 해설 (LaTeX)"
-                        }}
+                        **[출력 형식]**
+                        ===CONCEPT===
+                        (핵심 개념 한 줄)
+                        ===HINT===
+                        (이미지용 3줄 힌트)
+                        ===SOLUTION===
+                        (상세 정석 풀이. 단계별 서술.)
+                        ===SHORTCUT===
+                        (1타 강사의 숏컷 풀이)
+                        ===CORRECTION===
+                        (학생의 Self-Note에 대한 피드백/첨삭)
+                        ===TWIN_PROBLEM===
+                        (쌍둥이 문제)
+                        ===TWIN_ANSWER===
+                        (쌍둥이 문제 정답 및 해설)
                         """
                         try:
                             res_text, _ = generate_content_with_fallback(final_prompt, st.session_state['gemini_image'], mode="final")
                             
-                            # 🔥 [V3.4] JSON 파싱 강화 (역슬래시 2배)
-                            clean_json = sanitize_json(res_text)
+                            # 🔥 [V3.5] 텍스트 파서 사용 (오류 0%)
+                            data = parse_response_to_dict(res_text)
                             
-                            match = re.search(r'\{[\s\S]*\}', clean_json)
-                            if match: clean_json = match.group(0)
-                            
-                            data = json.loads(clean_json)
                             data['my_self_note'] = st.session_state['self_note']
                             st.session_state['analysis_result'] = data
                             
@@ -661,7 +684,7 @@ if menu == "📸 문제 풀기":
                                 st.session_state['user_name'], 
                                 st.session_state['selected_subject'], 
                                 data.get('concept'), 
-                                str(data), 
+                                data, # 딕셔너리 그대로 전달
                                 link,
                                 st.session_state['chat_messages']
                             )
