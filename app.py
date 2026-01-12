@@ -63,7 +63,7 @@ st.markdown("""
 # [2] 유틸리티 함수 & 설정
 # ----------------------------------------------------------
 
-# 키 100개 자동 로드 로직 (넉넉하게)
+# 키 100개 자동 로드 로직
 try:
     API_KEYS = []
     if "GOOGLE_API_KEY" in st.secrets:
@@ -142,15 +142,59 @@ def upload_to_imgbb(image_bytes):
         return None
     except: return None
 
-def save_result_to_sheet(student_name, subject, unit, summary, link):
+# 🔥 [수정] 저장 시 타임스탬프를 반환하도록 변경 (나중에 업데이트하기 위해)
+def save_result_to_sheet(student_name, subject, unit, summary, link, chat_log):
     client = get_sheet_client()
-    if not client: return
+    if not client: return None
     try:
         sheet = client.open_by_key(SHEET_ID).worksheet("results")
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        sheet.append_row([now, student_name, subject, unit, summary, link, "", 0])
+        
+        # summary(JSON) 안에 채팅 기록도 포함해서 저장
+        try:
+            data = json.loads(summary.replace("'", "\"")) # 안전하게 파싱 시도
+            data['chat_history'] = chat_log
+            final_content = json.dumps(data, ensure_ascii=False)
+        except:
+            final_content = summary # 파싱 실패시 원본 사용
+
+        sheet.append_row([now, student_name, subject, unit, final_content, link, "", 0])
         st.toast("✅ 학습 기록 저장 완료!", icon="💾")
-    except: pass
+        return now # 저장된 시간(키값) 반환
+    except: return None
+
+# 🔥 [신규] 기존 저장된 내용에 대화 로그만 업데이트하는 함수
+def update_chat_log_in_sheet(student_name, target_time, new_chat_log):
+    client = get_sheet_client()
+    if not client: return False
+    try:
+        sheet = client.open_by_key(SHEET_ID).worksheet("results")
+        # 모든 기록을 가져와서 타겟 찾기 (최적화 가능하지만 일단 안전하게)
+        records = sheet.get_all_records()
+        row_idx = -1
+        
+        for i, record in enumerate(records):
+            if str(record.get('날짜')) == str(target_time) and str(record.get('이름')) == str(student_name):
+                row_idx = i + 2 # 헤더(1) + 0-index(1) correction
+                current_content_str = record.get('내용')
+                break
+        
+        if row_idx != -1:
+            # 기존 내용 파싱해서 chat_history만 업데이트
+            try:
+                # ast.literal_eval이 더 강력함
+                try:
+                    data = json.loads(current_content_str)
+                except:
+                    data = ast.literal_eval(current_content_str)
+                
+                data['chat_history'] = new_chat_log
+                updated_content = json.dumps(data, ensure_ascii=False)
+                sheet.update_cell(row_idx, 5, updated_content) # 5번째 열이 '내용'
+                return True
+            except: return False
+        return False
+    except: return False
 
 def increment_review_count(row_date, student_name):
     client = get_sheet_client()
@@ -280,9 +324,18 @@ def generate_content_with_fallback(prompt, image=None, mode="chat"):
 
     raise last_error
 
+# 🔥 [강력 수정] JSON 파싱 오류 완전 해결 로직
 def sanitize_json(text):
-    pattern = r'\\(?![\\/bfnrtu"])' 
-    return re.sub(pattern, r'\\\\', text)
+    # 1. 마크다운 코드 블록 제거
+    text = text.replace("```json", "").replace("```", "").strip()
+    
+    # 2. LaTeX 역슬래시가 JSON을 깨뜨리지 않도록 이중 역슬래시로 치환
+    # (단, 이미 이중인 것과 JSON 제어문자 \n, \t, \" 등은 제외)
+    # 정규식: "역슬래시 뒤에 [ " \ / b f n r t u ] 가 오지 않는 경우"를 찾음
+    pattern = r'\\(?![\\/bfnrtu"])'
+    text = re.sub(pattern, r'\\\\', text)
+    
+    return text
 
 # ----------------------------------------------------------
 # [3] 로그인 & 상태 관리
@@ -297,6 +350,8 @@ if 'chat_messages' not in st.session_state: st.session_state['chat_messages'] = 
 if 'self_note' not in st.session_state: st.session_state['self_note'] = ""
 if 'last_canvas_image' not in st.session_state: st.session_state['last_canvas_image'] = None
 if 'enable_canvas' not in st.session_state: st.session_state['enable_canvas'] = False
+if 'saved_timestamp' not in st.session_state: st.session_state['saved_timestamp'] = None # 🔥 저장된 시간 기억용
+if 'last_saved_chat_len' not in st.session_state: st.session_state['last_saved_chat_len'] = 0 # 🔥 마지막 저장 시점 대화 길이
 
 def login_page():
     st.markdown("<h1 style='text-align: center; color:#f97316;'>🏫 MathAI Pro 로그인</h1>", unsafe_allow_html=True)
@@ -356,6 +411,8 @@ with st.sidebar:
         st.session_state['last_canvas_image'] = None
         st.session_state['self_note'] = ""
         st.session_state['enable_canvas'] = False
+        st.session_state['saved_timestamp'] = None
+        st.session_state['last_saved_chat_len'] = 0
         st.rerun()
         
     if st.button("로그아웃"):
@@ -473,37 +530,64 @@ if menu == "📸 문제 풀기":
                     with st.chat_message("user", avatar="🧑‍🎓"):
                         st.write(msg['content'])
 
-            if not st.session_state['analysis_result']:
-                col_mic, col_text = st.columns([0.1, 0.9])
-                with col_mic:
-                    voice_text = speech_to_text(language='ko', start_prompt="🎤", stop_prompt="⏹️", just_once=False, use_container_width=True)
-                
-                with col_text:
-                    prompt = st.chat_input("질문을 입력하세요 (타자, 음성, 판서 모두 가능)")
-                
-                if voice_text:
-                    prompt = voice_text
+            # 🔥 [V3.2] 해설 이후 추가 저장 버튼 표시
+            if st.session_state['analysis_result'] and st.session_state['saved_timestamp']:
+                # 채팅 길이가 저장했을 때보다 길어졌다면 업데이트 버튼 활성화
+                if len(st.session_state['chat_messages']) > st.session_state['last_saved_chat_len']:
+                    if st.button("💾 추가된 대화 저장하기", type="secondary", use_container_width=True):
+                        if update_chat_log_in_sheet(st.session_state['user_name'], st.session_state['saved_timestamp'], st.session_state['chat_messages']):
+                            st.session_state['last_saved_chat_len'] = len(st.session_state['chat_messages'])
+                            st.toast("대화 내용이 업데이트되었습니다!", icon="✅")
+                        else:
+                            st.error("저장 실패")
 
-                if prompt:
-                    st.session_state['chat_messages'].append({"role": "user", "content": prompt})
-                    st.rerun()
+            # 🔥 [V3.2] 채팅 입력창 (분석 전/후 모두 가능)
+            col_mic, col_text = st.columns([0.1, 0.9])
+            with col_mic:
+                voice_text = speech_to_text(language='ko', start_prompt="🎤", stop_prompt="⏹️", just_once=False, use_container_width=True)
+            
+            with col_text:
+                prompt = st.chat_input("질문을 입력하세요 (타자, 음성, 판서 모두 가능)")
+            
+            if voice_text:
+                prompt = voice_text
 
-            if st.session_state['chat_messages'] and st.session_state['chat_messages'][-1]['role'] == 'user' and not st.session_state['analysis_result']:
+            if prompt:
+                st.session_state['chat_messages'].append({"role": "user", "content": prompt})
+                st.rerun()
+
+            # 🔥 [V3.2] AI 응답 로직 (Context Injection 적용)
+            if st.session_state['chat_messages'] and st.session_state['chat_messages'][-1]['role'] == 'user':
                 with st.spinner("선생님이 답변을 생각 중입니다..."):
                     try:
                         history_text = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state['chat_messages']])
+                        
+                        # [핵심] 해설이 나왔다면, 그 해설 내용을 기억에 주입!
+                        context_injection = ""
+                        if st.session_state['analysis_result']:
+                            res = st.session_state['analysis_result']
+                            context_injection = f"""
+                            [참고: 너는 이미 이 문제의 정석 풀이와 숏컷을 학생에게 알려주었어.]
+                            - 정석 풀이: {res.get('solution')}
+                            - 숏컷 풀이: {res.get('shortcut')}
+                            학생이 이 풀이에 대해 추가 질문을 하고 있으니, 위 내용을 바탕으로 답변해줘.
+                            """
+
                         tutor_prompt = f"""
                         당신은 친절하지만 핵심을 찌르는 수학 '튜터'입니다. 과목: {st.session_state['selected_subject']}
-                        [대화 내역] {history_text}
+                        
+                        {context_injection}
+
+                        [대화 내역] 
+                        {history_text}
+                        
                         [지시사항]
-                        1. 정답을 바로 주지 말고 힌트나 역질문을 하세요.
+                        1. 정답을 바로 주지 말고 힌트나 역질문을 하세요. (이미 정답을 알려준 상태라면, 보충 설명을 하세요)
                         2. 수식은 LaTeX($$)를 사용하세요. (예: $x^2$)
                         3. 짧고 명확하게(3문장 이내) 답변하세요.
                         """
                         
                         img_to_send = st.session_state['gemini_image']
-                        
-                        # 🔥 [핵심 수정] 판서 모드이고, 그림 데이터가 있으면 그걸 이미지로 변환해서 보냄!
                         if st.session_state['enable_canvas'] and st.session_state.get('last_canvas_image') is not None:
                             img_array = st.session_state['last_canvas_image'].astype('uint8')
                             img_to_send = Image.fromarray(img_array, 'RGBA').convert('RGB')
@@ -564,7 +648,8 @@ if menu == "📸 문제 풀기":
                         """
                         try:
                             res_text, _ = generate_content_with_fallback(final_prompt, st.session_state['gemini_image'], mode="final")
-                            clean_json = sanitize_json(res_text.replace("```json", "").replace("```", "").strip())
+                            # 🔥 [V3.2] 강력한 Sanitizer 적용
+                            clean_json = sanitize_json(res_text)
                             match = re.search(r'\{[\s\S]*\}', clean_json)
                             if match: clean_json = match.group(0)
                             
@@ -579,13 +664,18 @@ if menu == "📸 문제 풀기":
                             st.session_state['solution_image'].save(img_byte_arr, format='JPEG', quality=90)
                             link = upload_to_imgbb(img_byte_arr.getvalue()) or "이미지_없음"
                             
-                            save_result_to_sheet(
+                            # 🔥 [V3.2] 저장 후 타임스탬프 기억 (업데이트용)
+                            saved_ts = save_result_to_sheet(
                                 st.session_state['user_name'], 
                                 st.session_state['selected_subject'], 
                                 data.get('concept'), 
                                 str(data), 
-                                link
+                                link,
+                                st.session_state['chat_messages']
                             )
+                            st.session_state['saved_timestamp'] = saved_ts
+                            st.session_state['last_saved_chat_len'] = len(st.session_state['chat_messages'])
+                            
                             st.rerun()
                         except Exception as e:
                             st.error(f"분석 오류: {e}")
@@ -624,6 +714,7 @@ elif menu == "📒 내 오답 노트":
                     else: st.info("이미지 없음")
                 with col_txt:
                     try:
+                        # 🔥 [V3.2] 데이터 파싱 시 ast.literal_eval 사용 (가장 안전)
                         content_json = ast.literal_eval(row.get('내용'))
                         
                         if 'my_self_note' in content_json and content_json['my_self_note']:
@@ -638,6 +729,14 @@ elif menu == "📒 내 오답 노트":
                         sol_clean = content_json.get('solution', '').replace('\n', '  \n')
                         st.markdown(sol_clean)
                         st.info(f"⚡ 숏컷: {content_json.get('shortcut')}")
+                        
+                        # 🔥 [V3.2] 채팅 기록이 있으면 보여주기
+                        if 'chat_history' in content_json and content_json['chat_history']:
+                            with st.expander("💬 튜터링 대화 기록 보기"):
+                                for msg in content_json['chat_history']:
+                                    role = "🤖 선생님" if msg['role'] == 'ai' else "🧑‍🎓 나"
+                                    st.markdown(f"**{role}:** {msg['content']}")
+
                         if content_json.get('twin_problem'):
                             st.divider()
                             st.markdown("**📝 쌍둥이 문제**")
