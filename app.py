@@ -63,7 +63,7 @@ try:
     API_KEYS = []
     if "GOOGLE_API_KEY" in st.secrets:
         API_KEYS.append(st.secrets["GOOGLE_API_KEY"])
-    for i in range(1, 21):
+    for i in range(1, 101):
         key_name = f"GOOGLE_API_KEY_{i}"
         if key_name in st.secrets:
             API_KEYS.append(st.secrets[key_name])
@@ -592,3 +592,4 @@ elif menu == "📒 내 오답 노트":
                         time.sleep(1)
                         st.rerun()
     else: st.info("아직 저장된 오답 노트가 없습니다.")
+
