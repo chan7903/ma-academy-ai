@@ -318,13 +318,16 @@ def generate_content_with_fallback(prompt, image=None, mode="chat"):
 
     raise last_error
 
-# 🔥 [최종 수정] JSON 파싱 오류 완전 박멸 (Aggressive Escaping)
+# 🔥 [최종 수정] JSON 파싱 오류 완전 박멸 (V3.4)
 def sanitize_json(text):
-    # 1. 마크다운 코드 블록 제거
+    # 1. 마크다운 제거
     text = text.replace("```json", "").replace("```", "").strip()
     
-    # 2. 강력한 Escape: 따옴표(") 앞에 있는 백슬래시가 아니면 무조건 두 개(\\)로 만듦
-    # 이렇게 하면 \frac, \u1234, \n, \t 등 모든 특수 문자가 '문자 그대로' 보존됨.
+    # 2. 역슬래시 2배 강화 작전
+    # 원래 JSON에서 \f, \b, \t 등은 제어문자입니다. 
+    # 하지만 LaTeX의 \frac, \beta, \theta는 제어문자가 아니라 텍스트입니다.
+    # 따라서 따옴표(") 앞이 아닌 모든 역슬래시를 강제로 두 개(\\)로 만듭니다.
+    # 이렇게 하면 \frac -> \\frac이 되어 JSON이 "아, 이건 글자구나" 하고 인식합니다.
     pattern = r'\\(?!["])' 
     text = re.sub(pattern, r'\\\\', text)
     
@@ -619,7 +622,7 @@ if menu == "📸 문제 풀기":
 
                         **[필수 지침]**
                         1. **무조건 JSON 포맷**만 출력하세요. 마크다운(```json)이나 사족을 달지 마세요.
-                        2. **[매우 중요] 모든 수식은 LaTeX 포맷($...$)을 사용하세요.** (예: x^2 대신 $x^2$, sqrt(x) 대신 $\sqrt{{x}}$)
+                        2. **[매우 중요] JSON 출력 시, LaTeX의 백슬래시(\)는 반드시 두 번(\\) 써야 합니다.** (예: "\\frac" (O), "\frac" (X))
                         3. 숏컷(Shortcut)을 최우선으로 적용하여 풀이를 작성하세요.
 
                         **[출력해야 할 JSON 구조]**
@@ -637,7 +640,7 @@ if menu == "📸 문제 풀기":
                         try:
                             res_text, _ = generate_content_with_fallback(final_prompt, st.session_state['gemini_image'], mode="final")
                             
-                            # 🔥 [V3.3] 최종 방어막: 모든 백슬래시를 강제로 두 번 칠함
+                            # 🔥 [V3.4] JSON 파싱 강화 (역슬래시 2배)
                             clean_json = sanitize_json(res_text)
                             
                             match = re.search(r'\{[\s\S]*\}', clean_json)
