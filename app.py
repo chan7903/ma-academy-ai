@@ -16,7 +16,7 @@ import time
 import json
 import re
 import random 
-import ast # 🔥 [필수 추가] 저장된 데이터를 안전하게 불러오기 위한 도구
+import ast 
 
 # ----------------------------------------------------------
 # [1] 기본 설정 & 디자인 주입 (HTML/Tailwind)
@@ -63,7 +63,7 @@ try:
     API_KEYS = []
     if "GOOGLE_API_KEY" in st.secrets:
         API_KEYS.append(st.secrets["GOOGLE_API_KEY"])
-    for i in range(1, 101):
+    for i in range(1, 21):
         key_name = f"GOOGLE_API_KEY_{i}"
         if key_name in st.secrets:
             API_KEYS.append(st.secrets[key_name])
@@ -468,7 +468,7 @@ if menu == "📸 문제 풀기":
                             [대화 내역] {history_text}
                             [지시사항]
                             1. 정답을 바로 주지 말고 힌트나 역질문을 하세요.
-                            2. 수식은 LaTeX($$)를 사용하세요.
+                            2. 수식은 LaTeX($$)를 사용하세요. (예: $x^2$)
                             3. 짧고 명확하게(3문장 이내) 답변하세요.
                             """
                             response_text, _ = generate_content_with_fallback(tutor_prompt, st.session_state['gemini_image'], mode="chat")
@@ -483,21 +483,37 @@ if menu == "📸 문제 풀기":
                     st.warning("💡 충분히 고민하고 정리를 마쳤다면, 아래 버튼을 눌러 해설을 확인하세요.")
                     if st.button("🔐 정답 및 1타 풀이 공개 (저장)", type="primary"):
                         with st.spinner("최종 리포트를 생성하고 오답노트에 저장 중입니다..."):
+                            # 🔥 [핵심 수정] 원장님이 요청하신 고퀄리티 프롬프트 + JSON 포맷 병합
                             final_prompt = f"""
-                            당신은 대한민국 1타 수학 강사입니다. 
+                            당신은 대한민국 최고의 수능 수학 '1타 강사'입니다. (과목:{st.session_state['selected_subject']})
                             이미지를 분석하여 JSON 형식으로 결과를 출력하세요.
-                            **[학생의 Self-Note 내용]** {st.session_state['self_note']}
-                            **[필수 지침]** 1. 무조건 JSON 포맷만 출력. 2. 숏컷(Shortcut) 필수 포함.
-                            **[출력 JSON 구조]**
+
+                            **[학생의 Self-Note 내용]**
+                            {st.session_state['self_note']}
+                            (이 내용도 참고하여 첨삭이나 총평에 반영해주세요.)
+
+                            **[핵심 지침: 1타 강사의 숏컷(Shortcut) 우선 적용]**
+                            문제를 풀 때 다음의 '실전 스킬'이 적용 가능한지 최우선으로 검토하고, 가능하다면 **[2] 숏컷 풀이**에 반드시 상세히 포함하세요.
+                            1. **[다항함수]** 3차/4차함수 비율 관계(2:1, 3:1 법칙), 넓이 공식(1/6, 1/12 공식), 높이차 공식.
+                            2. **[수열]** 등차수열 합의 기하학적 해석(원점 지나는 2차함수), 등비수열의 덩어리 합 법칙, 등차중항(평균×개수).
+                            3. **[미분/적분]** 이차함수 두 점 사이 기울기 = 중점의 미분계수, 0 근처 근사(sin x ≈ x), 변곡접선 영역 구분.
+                            4. **[삼각/기하]** 단위원기반 해석, 사인법칙(지름의 지배), 코사인법칙(피타고라스 보정).
+
+                            **[필수 지침]**
+                            1. **무조건 JSON 포맷**만 출력하세요. 마크다운(```json)이나 사족을 달지 마세요.
+                            2. **[매우 중요] 모든 수식은 LaTeX 포맷($...$)을 사용하세요.** (예: x^2 대신 $x^2$, sqrt(x) 대신 $\sqrt{{x}}$)
+                            3. 숏컷(Shortcut)을 최우선으로 적용하여 풀이를 작성하세요.
+
+                            **[출력해야 할 JSON 구조]**
                             {{
                                 "formula": "인식된 수식 (LaTeX)",
-                                "concept": "핵심 개념",
-                                "hint_for_image": "이미지용 힌트 (텍스트만)",
-                                "solution": "상세 정석 풀이",
-                                "shortcut": "1타 강사의 숏컷 풀이",
+                                "concept": "핵심 개념 (예: 3차함수 비율 관계)",
+                                "hint_for_image": "이미지용 3줄 힌트 (LaTeX 금지, 텍스트만)",
+                                "solution": "상세 풀이 (정석 풀이, 단계별 논리, 수식은 $...$ 사용)",
+                                "shortcut": "1타 강사의 숏컷 풀이 (직관적, 빠른 풀이, 수식은 $...$ 사용)",
                                 "correction": "학생의 풀이 또는 Self-Note에 대한 피드백/첨삭",
                                 "twin_problem": "쌍둥이 문제 (LaTeX)",
-                                "twin_answer": "쌍둥이 문제 정답 및 해설"
+                                "twin_answer": "쌍둥이 문제 정답 및 해설 (LaTeX)"
                             }}
                             """
                             try:
@@ -562,7 +578,6 @@ elif menu == "📒 내 오답 노트":
                     else: st.info("이미지 없음")
                 with col_txt:
                     try:
-                        # 🔥 [핵심 수정] ast.literal_eval로 안전하게 데이터 복원
                         content_json = ast.literal_eval(row.get('내용'))
                         
                         if 'my_self_note' in content_json and content_json['my_self_note']:
@@ -584,7 +599,7 @@ elif menu == "📒 내 오답 노트":
                             with st.expander("정답 보기"):
                                 st.markdown(content_json.get('twin_answer').replace('\n', '  \n'))
                     except: 
-                        st.warning("데이터 형식이 오래되었거나 손상되었습니다. 원문 보기:")
+                        st.warning("데이터 형식이 오래되었거나 손상되었습니다.")
                         st.write(row.get('내용'))
                 if st.button("✅ 오늘 복습 완료", key=f"rev_{index}"):
                     if increment_review_count(row.get('날짜'), row.get('이름')):
@@ -592,4 +607,3 @@ elif menu == "📒 내 오답 노트":
                         time.sleep(1)
                         st.rerun()
     else: st.info("아직 저장된 오답 노트가 없습니다.")
-
