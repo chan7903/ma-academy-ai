@@ -15,7 +15,8 @@ import os
 import time
 import json
 import re
-import random # 랜덤 키 분배를 위해 필수
+import random 
+import ast # 🔥 [필수 추가] 저장된 데이터를 안전하게 불러오기 위한 도구
 
 # ----------------------------------------------------------
 # [1] 기본 설정 & 디자인 주입 (HTML/Tailwind)
@@ -57,20 +58,15 @@ st.markdown("""
 # [2] 유틸리티 함수 & 설정
 # ----------------------------------------------------------
 
-# 🔥 [업그레이드] 키 13개 자동 로드 로직
+# 키 13개 자동 로드 로직
 try:
     API_KEYS = []
-    # 1. 기본 키 확인
     if "GOOGLE_API_KEY" in st.secrets:
         API_KEYS.append(st.secrets["GOOGLE_API_KEY"])
-    
-    # 2. 번호 붙은 키들 확인 (1번부터 20번까지 넉넉하게 체크)
     for i in range(1, 21):
         key_name = f"GOOGLE_API_KEY_{i}"
         if key_name in st.secrets:
             API_KEYS.append(st.secrets[key_name])
-            
-    # 중복 제거 및 유효성 체크
     API_KEYS = list(set([k for k in API_KEYS if k]))
     
     if not API_KEYS:
@@ -82,17 +78,17 @@ except:
     st.error("설정 오류: Secrets 접근 실패")
     st.stop()
 
-# 🔥 [업그레이드] 용도별 모델 분리 (하이브리드 전략)
+# 용도별 모델 분리 (하이브리드 전략)
 FLASH_MODELS = [
-    "gemini-3-flash-preview",    # 1순위: 최신 3세대 스피드
-    "gemini-2.5-flash",          # 2순위: 안정성
-    "gemini-2.0-flash"           # 3순위: 비상용
+    "gemini-3-flash-preview",    
+    "gemini-2.5-flash",          
+    "gemini-2.0-flash"           
 ]
 
 PRO_MODELS = [
-    "gemini-3-pro-preview",      # 1순위: 최강 지능
-    "gemini-2.5-pro",            # 2순위: 검증된 고성능
-    "deep-research-pro-preview-12-2025" # 3순위: 심층 분석 (혹시 몰라 추가)
+    "gemini-3-pro-preview",      
+    "gemini-2.5-pro",            
+    "deep-research-pro-preview-12-2025" 
 ]
 
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
@@ -244,41 +240,27 @@ def create_solution_image(original_image, hints):
     plt.close(fig)
     return Image.open(buf)
 
-# 🔥 [핵심 업그레이드] 스마트 하이브리드 AI 호출 함수
+# 스마트 하이브리드 AI 호출 함수
 def generate_content_with_fallback(prompt, image=None, mode="chat"):
-    """
-    mode="chat": 튜터링 대화 (빠른 Flash 모델 사용)
-    mode="final": 최종 정답 분석 (똑똑한 Pro 모델 사용)
-    """
     last_error = None
-    
-    # 1. 모드에 따라 사용할 모델 리스트 결정
     target_models = FLASH_MODELS if mode == "chat" else PRO_MODELS
-    
-    # 2. 키 인덱스를 무작위로 섞음 (로드 밸런싱)
     key_indices = list(range(len(API_KEYS)))
     random.shuffle(key_indices)
 
     for model_name in target_models:
-        # 해당 모델로 모든 키를 찔러봄
         for key_idx in key_indices:
             current_key = API_KEYS[key_idx]
             try:
                 genai.configure(api_key=current_key)
                 model = genai.GenerativeModel(model_name)
-                
-                if image:
-                    response = model.generate_content([prompt, image])
-                else:
-                    response = model.generate_content(prompt)
-                
+                if image: response = model.generate_content([prompt, image])
+                else: response = model.generate_content(prompt)
                 return response.text, f"✅ {model_name}"
             except Exception as e:
                 last_error = e
                 time.sleep(0.5) 
                 continue
     
-    # 3. 만약 Pro(최종분석)에서 다 실패하면, Flash(빠른모델)로라도 시도 (최후의 보루)
     if mode == "final":
         for model_name in FLASH_MODELS:
             for key_idx in key_indices:
@@ -376,7 +358,6 @@ if menu == "📸 문제 풀기":
     
     with col_main:
         if not st.session_state['chat_active']:
-            # [Step 1] 문제 업로드 화면
             st.markdown("""
             <div class="mb-6">
                 <h1 class="text-2xl font-bold text-[#111418]">AI 튜터에게 질문하기</h1>
@@ -442,7 +423,6 @@ if menu == "📸 문제 풀기":
                 """, unsafe_allow_html=True)
 
         else:
-            # [Step 2] 튜터링 & 결과 화면
             chat_col_left, chat_col_right = st.columns([1, 1.2], gap="medium")
             
             with chat_col_left:
@@ -491,7 +471,6 @@ if menu == "📸 문제 풀기":
                             2. 수식은 LaTeX($$)를 사용하세요.
                             3. 짧고 명확하게(3문장 이내) 답변하세요.
                             """
-                            # 🔥 채팅은 'chat' 모드로 호출 (Flash 모델)
                             response_text, _ = generate_content_with_fallback(tutor_prompt, st.session_state['gemini_image'], mode="chat")
                             st.session_state['chat_messages'].append({"role": "ai", "content": response_text})
                             st.rerun()
@@ -522,7 +501,6 @@ if menu == "📸 문제 풀기":
                             }}
                             """
                             try:
-                                # 🔥 최종 분석은 'final' 모드로 호출 (Pro 모델)
                                 res_text, _ = generate_content_with_fallback(final_prompt, st.session_state['gemini_image'], mode="final")
                                 clean_json = sanitize_json(res_text.replace("```json", "").replace("```", "").strip())
                                 match = re.search(r'\{[\s\S]*\}', clean_json)
@@ -584,7 +562,9 @@ elif menu == "📒 내 오답 노트":
                     else: st.info("이미지 없음")
                 with col_txt:
                     try:
-                        content_json = json.loads(row.get('내용').replace("'", "\""))
+                        # 🔥 [핵심 수정] ast.literal_eval로 안전하게 데이터 복원
+                        content_json = ast.literal_eval(row.get('내용'))
+                        
                         if 'my_self_note' in content_json and content_json['my_self_note']:
                             st.markdown(f"""
                             <div class="bg-orange-50 p-3 rounded-lg border border-orange-200 mb-3">
@@ -603,7 +583,9 @@ elif menu == "📒 내 오답 노트":
                             st.markdown(content_json.get('twin_problem').replace('\n', '  \n'))
                             with st.expander("정답 보기"):
                                 st.markdown(content_json.get('twin_answer').replace('\n', '  \n'))
-                    except: st.write(row.get('내용'))
+                    except: 
+                        st.warning("데이터 형식이 오래되었거나 손상되었습니다. 원문 보기:")
+                        st.write(row.get('내용'))
                 if st.button("✅ 오늘 복습 완료", key=f"rev_{index}"):
                     if increment_review_count(row.get('날짜'), row.get('이름')):
                         st.toast("복습 횟수가 증가했습니다!")
