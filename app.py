@@ -296,7 +296,7 @@ if 'chat_active' not in st.session_state: st.session_state['chat_active'] = Fals
 if 'chat_messages' not in st.session_state: st.session_state['chat_messages'] = []
 if 'self_note' not in st.session_state: st.session_state['self_note'] = ""
 if 'last_canvas_image' not in st.session_state: st.session_state['last_canvas_image'] = None
-if 'enable_canvas' not in st.session_state: st.session_state['enable_canvas'] = False # 🔥 판서 모드 토글 변수
+if 'enable_canvas' not in st.session_state: st.session_state['enable_canvas'] = False
 
 def login_page():
     st.markdown("<h1 style='text-align: center; color:#f97316;'>🏫 MathAI Pro 로그인</h1>", unsafe_allow_html=True)
@@ -362,11 +362,7 @@ with st.sidebar:
         st.session_state['is_logged_in'] = False
         st.rerun()
 
-# 🔥 [수정됨] Layout nesting 오류 해결: 불필요한 spacer 제거
 if menu == "📸 문제 풀기":
-    # col_spacer1, col_main, col_spacer2 = st.columns([0.5, 10, 0.5]) -> 제거함 (1단 합체 방지)
-    
-    # 바로 메인 컨텐츠 시작
     if not st.session_state['chat_active']:
         st.markdown("""
         <div class="mb-6">
@@ -433,13 +429,10 @@ if menu == "📸 문제 풀기":
             """, unsafe_allow_html=True)
 
     else:
-        # [Step 2] 튜터링 & 결과 화면
         chat_col_left, chat_col_right = st.columns([1, 1.2], gap="medium")
         
         with chat_col_left:
             st.markdown('<div class="math-card">', unsafe_allow_html=True)
-            
-            # 🔥 [V3.1] 판서 모드 토글 (선택권 부여)
             col_title, col_toggle = st.columns([0.6, 0.4])
             with col_title:
                 st.markdown('<h3 class="font-bold mb-2 text-slate-700">📄 문제 & 질문</h3>', unsafe_allow_html=True)
@@ -447,7 +440,6 @@ if menu == "📸 문제 풀기":
                 st.session_state['enable_canvas'] = st.checkbox("🖍️ 판서(그리기) 모드", value=st.session_state['enable_canvas'])
 
             if st.session_state['gemini_image']:
-                # 판서 모드 켜졌을 때만 Canvas 표시
                 if st.session_state['enable_canvas']:
                     orig_w, orig_h = st.session_state['gemini_image'].size
                     canvas_width = 500
@@ -468,7 +460,6 @@ if menu == "📸 문제 풀기":
                     if canvas_result.image_data is not None:
                         st.session_state['last_canvas_image'] = canvas_result.image_data
                 else:
-                    # 평소에는 깔끔한 이미지 보기
                     st.image(st.session_state['gemini_image'], use_column_width=True)
 
             st.markdown("---")
@@ -483,10 +474,7 @@ if menu == "📸 문제 풀기":
                         st.write(msg['content'])
 
             if not st.session_state['analysis_result']:
-                # 🔥 [V3.1] 오류 해결된 입력창 (Nesting level reduced)
-                # 바깥쪽 spacer를 없앴기 때문에 여기서 columns를 써도 안전함 (Level 2)
                 col_mic, col_text = st.columns([0.1, 0.9])
-                
                 with col_mic:
                     voice_text = speech_to_text(language='ko', start_prompt="🎤", stop_prompt="⏹️", just_once=False, use_container_width=True)
                 
@@ -514,9 +502,11 @@ if menu == "📸 문제 풀기":
                         """
                         
                         img_to_send = st.session_state['gemini_image']
+                        
+                        # 🔥 [핵심 수정] 판서 모드이고, 그림 데이터가 있으면 그걸 이미지로 변환해서 보냄!
                         if st.session_state['enable_canvas'] and st.session_state.get('last_canvas_image') is not None:
-                             # 캔버스 모드이고 그림이 있으면 그 데이터 활용 (여기선 로직 단순화)
-                             pass
+                            img_array = st.session_state['last_canvas_image'].astype('uint8')
+                            img_to_send = Image.fromarray(img_array, 'RGBA').convert('RGB')
 
                         response_text, _ = generate_content_with_fallback(tutor_prompt, img_to_send, mode="chat")
                         st.session_state['chat_messages'].append({"role": "ai", "content": response_text})
