@@ -63,12 +63,12 @@ st.markdown("""
 # [2] 유틸리티 함수 & 설정
 # ----------------------------------------------------------
 
-# 키 13개 자동 로드 로직
+# 키 100개 자동 로드 로직 (넉넉하게)
 try:
     API_KEYS = []
     if "GOOGLE_API_KEY" in st.secrets:
         API_KEYS.append(st.secrets["GOOGLE_API_KEY"])
-    for i in range(1, 101): # 100번까지 넉넉하게 체크
+    for i in range(1, 101):
         key_name = f"GOOGLE_API_KEY_{i}"
         if key_name in st.secrets:
             API_KEYS.append(st.secrets[key_name])
@@ -295,7 +295,7 @@ if 'solution_image' not in st.session_state: st.session_state['solution_image'] 
 if 'chat_active' not in st.session_state: st.session_state['chat_active'] = False
 if 'chat_messages' not in st.session_state: st.session_state['chat_messages'] = []
 if 'self_note' not in st.session_state: st.session_state['self_note'] = ""
-if 'last_canvas_image' not in st.session_state: st.session_state['last_canvas_image'] = None # 판서 이미지 저장
+if 'last_canvas_image' not in st.session_state: st.session_state['last_canvas_image'] = None
 
 def login_page():
     st.markdown("<h1 style='text-align: center; color:#f97316;'>🏫 MathAI Pro 로그인</h1>", unsafe_allow_html=True)
@@ -407,7 +407,8 @@ if menu == "📸 문제 풀기":
                 if img_file:
                     image = Image.open(img_file)
                     if image.mode in ("RGBA", "P"): image = image.convert("RGB")
-                    st.image(image, caption="선택한 문제", use_container_width=True)
+                    # 🔥 [수정됨] use_container_width 대신 use_column_width 사용 (버전 호환성 해결)
+                    st.image(image, caption="선택한 문제", use_column_width=True)
                     st.markdown("<br>", unsafe_allow_html=True)
                     
                     if st.button("💬 AI 튜터링 시작", type="primary"):
@@ -434,12 +435,9 @@ if menu == "📸 문제 풀기":
             
             with chat_col_left:
                 st.markdown('<div class="math-card">', unsafe_allow_html=True)
-                
-                # 🔥 [V3.0] 스마트 칠판 (Canvas) 구현
                 st.markdown('<h3 class="font-bold mb-2 text-slate-700">🖍️ 스마트 칠판 (궁금한 곳 체크!)</h3>', unsafe_allow_html=True)
                 
                 if st.session_state['gemini_image']:
-                    # 캔버스 크기 조정
                     orig_w, orig_h = st.session_state['gemini_image'].size
                     canvas_width = 500
                     canvas_height = int(orig_h * (canvas_width / orig_w))
@@ -456,7 +454,6 @@ if menu == "📸 문제 풀기":
                         key="canvas",
                     )
                     
-                    # 사용자가 그림을 그렸으면 그 이미지를 저장해둠 (질문할 때 같이 보냄)
                     if canvas_result.image_data is not None:
                         st.session_state['last_canvas_image'] = canvas_result.image_data
 
@@ -472,16 +469,13 @@ if menu == "📸 문제 풀기":
                             st.write(msg['content'])
 
                 if not st.session_state['analysis_result']:
-                    # 🔥 [V3.0] 음성 & 텍스트 통합 입력
                     col_mic, col_text = st.columns([0.1, 0.9])
                     with col_mic:
-                        # 음성 인식 버튼 (한국어 설정)
                         voice_text = speech_to_text(language='ko', start_prompt="🎤", stop_prompt="⏹️", just_once=False, use_container_width=True)
                     
                     with col_text:
                         prompt = st.chat_input("질문을 입력하세요 (음성 버튼을 눌러 말해도 됩니다)")
                     
-                    # 음성 입력이 있으면 텍스트 입력으로 간주
                     if voice_text:
                         prompt = voice_text
 
@@ -498,14 +492,12 @@ if menu == "📸 문제 풀기":
                             [대화 내역] {history_text}
                             [지시사항]
                             1. 정답을 바로 주지 말고 힌트나 역질문을 하세요.
-                            2. 수식은 LaTeX($$)를 사용하세요.
+                            2. 수식은 LaTeX($$)를 사용하세요. (예: $x^2$)
                             3. 짧고 명확하게(3문장 이내) 답변하세요.
                             """
                             
-                            # 🔥 판서 이미지가 있으면 그것을, 없으면 원본 이미지를 전송
                             img_to_send = st.session_state['gemini_image']
                             if st.session_state.get('last_canvas_image') is not None:
-                                # 캔버스 데이터(RGBA)를 이미지로 변환하여 전송하는 로직 (간소화: 여기선 원본 사용, 추후 고도화 가능)
                                 pass 
 
                             response_text, _ = generate_content_with_fallback(tutor_prompt, img_to_send, mode="chat")
@@ -604,7 +596,8 @@ if menu == "📸 문제 풀기":
                         if st.button("정답 보기"):
                             st.write(res.get('twin_answer'))
                     if st.session_state['solution_image']:
-                        st.image(st.session_state['solution_image'], caption="오답노트 이미지", use_container_width=True)
+                        # 🔥 [수정됨] use_container_width 대신 use_column_width 사용 (버전 호환성 해결)
+                        st.image(st.session_state['solution_image'], caption="오답노트 이미지", use_column_width=True)
 
 elif menu == "📒 내 오답 노트":
     st.markdown("""
@@ -620,7 +613,8 @@ elif menu == "📒 내 오답 노트":
                 col_img, col_txt = st.columns([1, 2])
                 with col_img:
                     if row.get('링크') and row.get('링크') != "이미지_없음":
-                        st.image(row.get('링크'), use_container_width=True)
+                        # 🔥 [수정됨] use_container_width 대신 use_column_width 사용 (버전 호환성 해결)
+                        st.image(row.get('링크'), use_column_width=True)
                     else: st.info("이미지 없음")
                 with col_txt:
                     try:
