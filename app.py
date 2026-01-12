@@ -423,29 +423,22 @@ if menu == "📸 문제 풀기":
                 """, unsafe_allow_html=True)
 
         else:
+            # ------------------------------------------------
+            # [Step 2] 튜터링 & 결과 화면 (UI 위치 변경됨)
+            # ------------------------------------------------
             chat_col_left, chat_col_right = st.columns([1, 1.2], gap="medium")
             
+            # 🔥 [왼쪽 컬럼] 이미지 + 채팅 (학습 과정)
             with chat_col_left:
                 st.markdown('<div class="math-card">', unsafe_allow_html=True)
-                st.markdown('<h3 class="font-bold mb-2 text-slate-700">📄 문제 이미지</h3>', unsafe_allow_html=True)
+                st.markdown('<h3 class="font-bold mb-2 text-slate-700">📄 문제 & 튜터링</h3>', unsafe_allow_html=True)
                 if st.session_state['gemini_image']:
                     st.image(st.session_state['gemini_image'], use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
                 
-                st.markdown('<div class="math-card" style="border-left: 5px solid #f97316;">', unsafe_allow_html=True)
-                st.markdown('<h3 class="font-bold mb-2 text-[#f97316]">✍️ 나의 깨달음 정리 (Self-Note)</h3>', unsafe_allow_html=True)
-                st.markdown('<p class="text-xs text-slate-500 mb-2">선생님과 대화하며 알게 된 힌트나 핵심을 적어보세요. (나중에 오답노트에 저장됩니다)</p>', unsafe_allow_html=True)
+                st.markdown("---")
                 
-                self_note_input = st.text_area("내용 입력", value=st.session_state['self_note'], height=100, label_visibility="collapsed", placeholder="예: 판별식 D가 0보다 커야 실근 2개를 갖는다는 걸 깜빡했다.")
-                if st.button("💾 정리 내용 임시 저장"):
-                    st.session_state['self_note'] = self_note_input
-                    st.toast("정리 내용이 저장되었습니다.")
-                st.markdown('</div>', unsafe_allow_html=True)
-
-            with chat_col_right:
-                st.markdown('<div class="math-card h-[600px] overflow-y-auto flex flex-col relative">', unsafe_allow_html=True)
-                st.markdown('<h3 class="font-bold mb-4 text-slate-700 sticky top-0 bg-white z-10 py-2 border-b">💬 AI 튜터와의 대화</h3>', unsafe_allow_html=True)
-                
+                # 채팅창 (왼쪽 하단에 배치)
+                st.markdown('<div class="h-[500px] overflow-y-auto flex flex-col relative">', unsafe_allow_html=True)
                 for msg in st.session_state['chat_messages']:
                     if msg['role'] == 'ai':
                         with st.chat_message("assistant", avatar="🤖"):
@@ -476,14 +469,24 @@ if menu == "📸 문제 풀기":
                             st.rerun()
                         except Exception as e:
                             st.error(f"채팅 오류: {e}")
+                st.markdown('</div></div>', unsafe_allow_html=True)
 
+            # 🔥 [오른쪽 컬럼] 나의 정리 + 최종 결과 (학습 결과)
+            with chat_col_right:
+                st.markdown('<div class="math-card" style="border-left: 5px solid #f97316;">', unsafe_allow_html=True)
+                st.markdown('<h3 class="font-bold mb-2 text-[#f97316]">✍️ 나의 깨달음 정리 (Self-Note)</h3>', unsafe_allow_html=True)
+                st.markdown('<p class="text-xs text-slate-500 mb-2">선생님과 대화하며 알게 된 힌트나 핵심을 적어보세요. (나중에 오답노트에 저장됩니다)</p>', unsafe_allow_html=True)
+                
+                self_note_input = st.text_area("내용 입력", value=st.session_state['self_note'], height=150, label_visibility="collapsed", placeholder="예: 판별식 D가 0보다 커야 실근 2개를 갖는다는 걸 깜빡했다.")
+                if st.button("💾 정리 내용 임시 저장"):
+                    st.session_state['self_note'] = self_note_input
+                    st.toast("정리 내용이 저장되었습니다.")
                 st.markdown('</div>', unsafe_allow_html=True)
 
                 if not st.session_state['analysis_result']:
-                    st.warning("💡 충분히 고민하고 정리를 마쳤다면, 아래 버튼을 눌러 해설을 확인하세요.")
+                    st.info("💡 충분히 고민하고 정리를 마쳤다면, 아래 버튼을 눌러 해설을 확인하세요.")
                     if st.button("🔐 정답 및 1타 풀이 공개 (저장)", type="primary"):
                         with st.spinner("최종 리포트를 생성하고 오답노트에 저장 중입니다..."):
-                            # 🔥 [핵심 수정] 원장님이 요청하신 고퀄리티 프롬프트 + JSON 포맷 병합
                             final_prompt = f"""
                             당신은 대한민국 최고의 수능 수학 '1타 강사'입니다. (과목:{st.session_state['selected_subject']})
                             이미지를 분석하여 JSON 형식으로 결과를 출력하세요.
@@ -607,4 +610,3 @@ elif menu == "📒 내 오답 노트":
                         time.sleep(1)
                         st.rerun()
     else: st.info("아직 저장된 오답 노트가 없습니다.")
-
