@@ -313,7 +313,7 @@ def generate_content_with_fallback(prompt, image=None, mode="chat"):
 
     raise last_error
 
-# 텍스트 파싱 함수 (업데이트된 프롬프트 포맷 대응)
+# 텍스트 파싱 함수
 def parse_response_to_dict(text):
     data = {}
     try:
@@ -353,7 +353,6 @@ def parse_response_to_dict(text):
 
     return data
 
-# 🔥 [최종 수정] JSON 파싱 오류 완전 박멸 (V3.4)
 def sanitize_json(text):
     text = text.replace("```json", "").replace("```", "").strip()
     pattern = r'\\(?!["])' 
@@ -374,7 +373,9 @@ if 'self_note' not in st.session_state: st.session_state['self_note'] = ""
 if 'last_canvas_image' not in st.session_state: st.session_state['last_canvas_image'] = None
 if 'enable_canvas' not in st.session_state: st.session_state['enable_canvas'] = False
 if 'saved_timestamp' not in st.session_state: st.session_state['saved_timestamp'] = None 
-if 'last_saved_chat_len' not in st.session_state: st.session_state['last_saved_chat_len'] = 0 
+if 'last_saved_chat_len' not in st.session_state: st.session_state['last_saved_chat_len'] = 0
+# 🔥 [V3.7] 음성 중복 방지 변수 추가
+if 'last_voice_text' not in st.session_state: st.session_state['last_voice_text'] = ""
 
 def login_page():
     st.markdown("<h1 style='text-align: center; color:#f97316;'>🏫 MathAI Pro 로그인</h1>", unsafe_allow_html=True)
@@ -436,6 +437,7 @@ with st.sidebar:
         st.session_state['enable_canvas'] = False
         st.session_state['saved_timestamp'] = None
         st.session_state['last_saved_chat_len'] = 0
+        st.session_state['last_voice_text'] = ""
         st.rerun()
         
     if st.button("로그아웃"):
@@ -567,13 +569,18 @@ if menu == "📸 문제 풀기":
                 voice_text = speech_to_text(language='ko', start_prompt="🎤", stop_prompt="⏹️", just_once=False, use_container_width=True)
             
             with col_text:
-                prompt = st.chat_input("질문을 입력하세요 (타자, 음성, 판서 모두 가능)")
+                chat_input_text = st.chat_input("질문을 입력하세요 (타자, 음성, 판서 모두 가능)")
             
-            if voice_text:
-                prompt = voice_text
+            # 🔥 [V3.7] 음성 무한 반복 방지 로직
+            final_prompt = None
+            if voice_text and voice_text != st.session_state['last_voice_text']:
+                final_prompt = voice_text
+                st.session_state['last_voice_text'] = voice_text # 방금 한 말 기억하기
+            elif chat_input_text:
+                final_prompt = chat_input_text
 
-            if prompt:
-                st.session_state['chat_messages'].append({"role": "user", "content": prompt})
+            if final_prompt:
+                st.session_state['chat_messages'].append({"role": "user", "content": final_prompt})
                 st.rerun()
 
             if st.session_state['chat_messages'] and st.session_state['chat_messages'][-1]['role'] == 'user':
@@ -632,7 +639,6 @@ if menu == "📸 문제 풀기":
                 st.info("💡 충분히 고민하고 정리를 마쳤다면, 아래 버튼을 눌러 해설을 확인하세요.")
                 if st.button("🔐 정답 및 1타 풀이 공개 (저장)", type="primary"):
                     with st.spinner("최종 리포트를 생성하고 오답노트에 저장 중입니다..."):
-                        # 🔥 [V3.6 핵심] 원장님의 고퀄리티 프롬프트 + V3.5의 안전한 포맷팅 결합
                         final_prompt = f"""
                         당신은 대한민국 최고의 수능 수학 '1타 강사'입니다. (과목:{st.session_state['selected_subject']})
                         이미지를 분석하여 다음 6가지 항목을 명확히 구분하여 출력하세요.
@@ -680,7 +686,6 @@ if menu == "📸 문제 풀기":
                         try:
                             res_text, _ = generate_content_with_fallback(final_prompt, st.session_state['gemini_image'], mode="final")
                             
-                            # 🔥 [V3.5] 텍스트 파서 사용 (오류 0%)
                             data = parse_response_to_dict(res_text)
                             
                             data['my_self_note'] = st.session_state['self_note']
@@ -697,7 +702,7 @@ if menu == "📸 문제 풀기":
                                 st.session_state['user_name'], 
                                 st.session_state['selected_subject'], 
                                 data.get('concept'), 
-                                data, # 딕셔너리 그대로 전달
+                                data, 
                                 link,
                                 st.session_state['chat_messages']
                             )
