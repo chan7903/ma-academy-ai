@@ -28,7 +28,7 @@ from streamlit_mic_recorder import speech_to_text
 # ----------------------------------------------------------
 
 # 🔥 [수정] 원장님 학원 로고 URL 적용
-LOGO_URL = "https://ibb.co/qFVjg1BG"
+LOGO_URL = "https://i.ibb.co/Hp34Pg7v/logo.png"
 
 st.set_page_config(
     page_title="MathAI Pro: Smart Tutor", 
@@ -844,3 +844,4 @@ elif menu == "📒 내 오답 노트":
                         time.sleep(1)
                         st.rerun()
     else: st.info("아직 저장된 오답 노트가 없습니다.")
+
