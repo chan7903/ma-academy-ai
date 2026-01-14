@@ -219,7 +219,15 @@ def load_students_from_sheet():
     if not client: return None
     try:
         sheet = client.open_by_key(SHEET_ID).worksheet("students")
-        return pd.DataFrame(sheet.get_all_records())
+        
+        # 🔥 [핵심 수정] get_all_records()는 숫자로 지맘대로 바꿉니다.
+        # 대신 get_all_values()를 쓰면 무조건 '문자 그대로' 가져옵니다. (0123 유지됨)
+        all_data = sheet.get_all_values()
+        
+        if not all_data: return None
+        
+        headers = all_data.pop(0) # 첫 줄(제목) 분리
+        return pd.DataFrame(all_data, columns=headers)
     except: return None
 
 def clean_text_for_plot_safe(text):
@@ -797,4 +805,5 @@ elif menu == "📒 내 오답 노트":
                         time.sleep(1)
                         st.rerun()
     else: st.info("아직 저장된 오답 노트가 없습니다.")
+
 
