@@ -27,7 +27,7 @@ from streamlit_mic_recorder import speech_to_text
 # [1] 기본 설정 & 디자인 주입 (HTML/Tailwind)
 # ----------------------------------------------------------
 
-# 🔥 [수정] 원장님 학원 로고 URL 적용
+# 🔥 [수정] 원장님 학원 로고 URL (진짜 이미지 주소 적용됨)
 LOGO_URL = "https://i.ibb.co/Hp34Pg7v/logo.png"
 
 st.set_page_config(
@@ -209,6 +209,35 @@ def update_chat_log_in_sheet(student_name, target_time, new_chat_log):
         return False
     except: return False
 
+# 🔥 [추가] 쌍둥이 문제 업데이트 함수
+def update_twin_data_in_sheet(student_name, target_time, twin_data):
+    client = get_sheet_client()
+    if not client: return False
+    try:
+        sheet = client.open_by_key(SHEET_ID).worksheet("results")
+        records = sheet.get_all_records()
+        row_idx = -1
+        
+        for i, record in enumerate(records):
+            if str(record.get('날짜')) == str(target_time) and str(record.get('이름')) == str(student_name):
+                row_idx = i + 2
+                current_content_str = record.get('내용')
+                break
+        
+        if row_idx != -1:
+            try:
+                data = ast.literal_eval(current_content_str)
+                # 기존 데이터에 쌍둥이 문제 추가/덮어쓰기
+                data['twin_problem'] = twin_data.get('twin_problem')
+                data['twin_answer'] = twin_data.get('twin_answer')
+                
+                updated_content = str(data)
+                sheet.update_cell(row_idx, 5, updated_content)
+                return True
+            except: return False
+        return False
+    except: return False
+
 def increment_review_count(row_date, student_name):
     client = get_sheet_client()
     if not client: return False
@@ -361,6 +390,7 @@ def parse_response_to_dict(text):
             data['correction'] = text.split("===CORRECTION===")[1].split("===TWIN_PROBLEM===")[0].strip()
         else: data['correction'] = "첨삭 없음"
 
+        # 쌍둥이 문제는 이제 별도로 처리되거나 없을 수도 있음
         if "===TWIN_PROBLEM===" in text:
              data['twin_problem'] = text.split("===TWIN_PROBLEM===")[1].split("===TWIN_ANSWER===")[0].strip()
         else: data['twin_problem'] = "쌍둥이 문제 없음"
@@ -448,7 +478,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 with st.sidebar:
-    # 🔥 [추가] 앱 설치 안내 문구 (들여쓰기 수정 완료)
     with st.expander("📲 앱 설치(아이콘 만들기) 방법 (클릭)", expanded=False):
         st.write("1. (아이폰) 하단 '공유' 버튼 → '홈 화면에 추가'")
         st.write("2. (갤럭시) 우측 상단 '점 3개' → '홈 화면에 추가' 또는 '앱 설치'")
@@ -666,25 +695,18 @@ if menu == "📸 문제 풀기":
             if not st.session_state['analysis_result']:
                 st.info("💡 충분히 고민하고 정리를 마쳤다면, 아래 버튼을 눌러 해설을 확인하세요.")
                 if st.button("🔐 정답 및 1타 풀이 공개 (저장)", type="primary"):
-                    with st.spinner("최종 리포트를 생성하고 오답노트에 저장 중입니다..."):
-                        final_prompt = f"""
+                    with st.spinner("1타 강사 해설을 생성하고 오답노트에 저장 중입니다... (1단계)"):
+                        # 🔥 [수정 1] 1차 프롬프트: 쌍둥이 문제 제외 (속도 UP)
+                        final_prompt_main = f"""
                         당신은 대한민국 최고의 수능 수학 '1타 강사'입니다. (과목:{st.session_state['selected_subject']})
-                        이미지를 분석하여 다음 6가지 항목을 명확히 구분하여 출력하세요.
+                        이미지를 분석하여 다음 항목을 명확히 구분하여 출력하세요.
 
-                        **[학생의 Self-Note 내용]**
+                        **[학생의 Self-Note]**
                         {st.session_state['self_note']}
-                        (이 내용도 참고하여 'CORRECTION' 항목에 첨삭을 넣어주세요.)
+                        (이 내용도 참고하여 첨삭을 넣어주세요.)
 
                         **[핵심 지침: 1타 강사의 '실전 스킬' 전방위 적용]**
                         문제의 단원을 먼저 파악하고, 해당 단원에서 고수들이 사용하는 '기하학적 해석', '비율 관계', '공식'이 있는지 최우선으로 검토하세요.
-                        아래 리스트는 **반드시 체크해야 할 대표적인 예시**이며, 리스트에 없더라도 해당 단원의 숏컷이 있다면 적극적으로 사용하세요.
-
-                        **[필수 체크 리스트 (예시)]**
-                        1. **[다항함수]** 3차/4차함수 비율 관계(2:1, 3:1), 넓이 공식(1/6, 1/12), 높이차 공식, 변곡점 대칭성.
-                        2. **[수열]** 등차수열 합의 기하학적 해석(상수항 없는 2차함수), 등차중항(평균), 등비수열 덩어리 합.
-                        3. **[미분/적분]** 이차함수 두 점 사이 기울기(=중점의 미분계수), 0 근처 근사(sin x ≈ x, tan x ≈ x).
-                        4. **[삼각/기하]** 사인법칙(지름의 지배), 코사인법칙(피타고라스 보정), 단위원 해석, 중선 정리.
-                        5. **[확통/경우의 수]** 같은 것이 있는 순열(묶어서 처리 vs 자리 뽑기), 여사건의 빠른 판단, 독립시행의 확률 분포 직관.
 
                         **[필수 지침]**
                         1. **절대 JSON 포맷을 사용하지 마세요.**
@@ -706,19 +728,21 @@ if menu == "📸 문제 풀기":
                         ===CORRECTION===
                         (학생의 풀이 또는 Self-Note에 대한 피드백/첨삭.
                         [총평], [틀린 곳], [올바른 방향] 형식으로 작성)
-                        ===TWIN_PROBLEM===
-                        (위 문제와 동일한 원리나 숏컷을 연습할 수 있는 유사 문제 1개. LaTeX 사용)
-                        ===TWIN_ANSWER===
-                        (쌍둥이 문제 정답 및 간단 해설. LaTeX 사용)
                         """
                         try:
-                            res_text, _ = generate_content_with_fallback(final_prompt, st.session_state['gemini_image'], mode="final")
+                            # 1차 생성 (해설만)
+                            res_text, _ = generate_content_with_fallback(final_prompt_main, st.session_state['gemini_image'], mode="final")
                             
                             data = parse_response_to_dict(res_text)
-                            
                             data['my_self_note'] = st.session_state['self_note']
+                            
+                            # 쌍둥이 문제 없음 처리
+                            data['twin_problem'] = "쌍둥이 문제 없음"
+                            data['twin_answer'] = "정답 없음"
+                            
                             st.session_state['analysis_result'] = data
                             
+                            # 이미지 생성 및 저장 (1차)
                             st.session_state['solution_image'] = create_solution_image(
                                 st.session_state['gemini_image'], data.get('hint_for_image', '힌트 없음')
                             )
@@ -755,10 +779,47 @@ if menu == "📸 문제 풀기":
                         st.markdown("---")
                         st.markdown(f"**📝 첨삭 지도:**\n{res.get('correction').replace(chr(10), '  '+chr(10))}")
 
-                with st.expander("📝 쌍둥이 문제 확인"):
-                    st.write(res.get('twin_problem'))
-                    if st.button("정답 보기"):
-                        st.write(res.get('twin_answer'))
+                # 🔥 [수정 2] 쌍둥이 문제 분리 (버튼으로 실행)
+                if res.get('twin_problem') == "쌍둥이 문제 없음":
+                    st.info("💡 더 완벽하게 공부하고 싶다면?")
+                    if st.button("📝 쌍둥이 문제 도전하기 (심화 학습)", type="secondary"):
+                         with st.spinner("AI가 비슷한 유형의 문제를 창작 중입니다... (2단계)"):
+                            twin_prompt = f"""
+                            당신은 대한민국 최고의 수능 수학 '1타 강사'입니다.
+                            앞서 푼 문제와 동일한 개념과 숏컷을 사용하여 풀 수 있는 '쌍둥이 문제(유사 문제)'를 1개 창작하세요.
+                            
+                            **[출력 형식]**
+                            ===TWIN_PROBLEM===
+                            (창작된 문제 지문. LaTeX 사용)
+                            ===TWIN_ANSWER===
+                            (정답 및 간단 해설. LaTeX 사용)
+                            """
+                            try:
+                                # 2차 생성 (쌍둥이 문제만)
+                                res_text_twin, _ = generate_content_with_fallback(twin_prompt, st.session_state['gemini_image'], mode="final")
+                                twin_data = parse_response_to_dict(res_text_twin)
+                                
+                                # 데이터 합치기
+                                st.session_state['analysis_result']['twin_problem'] = twin_data.get('twin_problem')
+                                st.session_state['analysis_result']['twin_answer'] = twin_data.get('twin_answer')
+                                
+                                # 시트 업데이트
+                                if st.session_state['saved_timestamp']:
+                                    update_twin_data_in_sheet(
+                                        st.session_state['user_name'], 
+                                        st.session_state['saved_timestamp'], 
+                                        st.session_state['analysis_result']
+                                    )
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"문제 생성 오류: {e}")
+                else:
+                    # 쌍둥이 문제가 이미 있는 경우 표시
+                    with st.expander("📝 쌍둥이 문제 확인", expanded=True):
+                        st.write(res.get('twin_problem'))
+                        if st.button("정답 보기"):
+                            st.write(res.get('twin_answer'))
+
                 if st.session_state['solution_image']:
                     st.image(st.session_state['solution_image'], caption="오답노트 이미지", use_column_width=True)
 
@@ -844,4 +905,3 @@ elif menu == "📒 내 오답 노트":
                         time.sleep(1)
                         st.rerun()
     else: st.info("아직 저장된 오답 노트가 없습니다.")
-
