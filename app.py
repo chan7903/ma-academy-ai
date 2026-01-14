@@ -18,6 +18,7 @@ import re
 import random 
 import ast
 import numpy as np
+import textwrap  # 🔥 [추가] 텍스트 자동 줄바꿈을 위한 라이브러리
 
 # 🔥 [추가 라이브러리] 판서 및 음성 기능용
 from streamlit_drawable_canvas import st_canvas
@@ -99,17 +100,15 @@ except:
     st.stop()
 
 # 🔥 [전략 확정] 모델 라인업
-# 1. Flash 팀 (평소용 - 해설+쌍둥이 한번에 처리)
 FLASH_MODELS = [
-    "gemini-3-flash-preview",     # 1순위: 최신 3세대 (압도적 성능)
-    "gemini-2.5-flash",           # 2순위: 2.5세대
-    "gemini-2.0-flash-001"        # 3순위: 2.0세대
+    "gemini-3-flash-preview",     
+    "gemini-2.5-flash",           
+    "gemini-2.0-flash-001"        
 ]
 
-# 2. Pro 팀 (고난도용 - 재질문 버튼 누를 때만)
 PRO_MODELS = [
-    "gemini-3-pro-preview",       # 1순위: 3세대 Pro
-    "gemini-2.5-pro"              # 2순위: 2.5세대 Pro
+    "gemini-3-pro-preview",       
+    "gemini-2.5-pro"              
 ]
 
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
@@ -178,7 +177,6 @@ def save_result_to_sheet(student_name, subject, unit, summary, link, chat_log):
         return now 
     except: return None
 
-# 🔥 [유지] 덮어쓰기 저장용 함수 (Pro 업데이트용)
 def overwrite_result_in_sheet(student_name, target_time, new_summary):
     client = get_sheet_client()
     if not client: return False
@@ -195,10 +193,8 @@ def overwrite_result_in_sheet(student_name, target_time, new_summary):
         
         if row_idx != -1:
             try:
-                # 기존 데이터 가져와서 내용만 교체
                 data = ast.literal_eval(current_content_str)
-                data.update(new_summary) # 새로운 Pro 분석 결과로 업데이트
-                
+                data.update(new_summary)
                 updated_content = str(data)
                 sheet.update_cell(row_idx, 5, updated_content)
                 return True
@@ -224,6 +220,32 @@ def update_chat_log_in_sheet(student_name, target_time, new_chat_log):
             try:
                 data = ast.literal_eval(current_content_str)
                 data['chat_history'] = new_chat_log
+                updated_content = str(data)
+                sheet.update_cell(row_idx, 5, updated_content)
+                return True
+            except: return False
+        return False
+    except: return False
+
+def update_twin_data_in_sheet(student_name, target_time, twin_data):
+    client = get_sheet_client()
+    if not client: return False
+    try:
+        sheet = client.open_by_key(SHEET_ID).worksheet("results")
+        records = sheet.get_all_records()
+        row_idx = -1
+        
+        for i, record in enumerate(records):
+            if str(record.get('날짜')) == str(target_time) and str(record.get('이름')) == str(student_name):
+                row_idx = i + 2
+                current_content_str = record.get('내용')
+                break
+        
+        if row_idx != -1:
+            try:
+                data = ast.literal_eval(current_content_str)
+                data['twin_problem'] = twin_data.get('twin_problem')
+                data['twin_answer'] = twin_data.get('twin_answer')
                 updated_content = str(data)
                 sheet.update_cell(row_idx, 5, updated_content)
                 return True
@@ -279,6 +301,7 @@ def text_for_plot_fallback(text):
     if not text: return ""
     return re.sub(r'[\$\\\{\}]', '', text)
 
+# 🔥 [수정] 텍스트 줄바꿈 기능이 추가된 이미지 생성 함수
 def create_solution_image(original_image, hints):
     font_prop = get_handwriting_font_prop()
     w, h = original_image.size
@@ -304,13 +327,25 @@ def create_solution_image(original_image, hints):
     try:
         safe_hints = clean_text_for_plot_safe(hints)
         ax_note.text(0.05, 0.88, "💡 1타 강사의 핵심 Point", fontsize=24, color='#FF4500', fontweight='bold', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
-        lines = safe_hints.split('\n')
+        
+        # 🔥 [핵심 수정] 줄바꿈 처리 로직 개선
+        # 1. 슬래시(/)나 엔터로 구분된 항목을 먼저 나눕니다.
+        pre_lines = safe_hints.replace(' / ', '\n').split('\n')
+        
         y_pos = 0.72
-        for line in lines:
-            if line.strip():
-                display_line = line.strip()[:45] + "..." if len(line.strip()) > 45 else line.strip()
-                ax_note.text(0.05, y_pos, f"• {display_line}", fontsize=21, color='#333333', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
-                y_pos -= 0.12
+        for line in pre_lines:
+            line = line.strip()
+            if not line: continue
+            
+            # 2. textwrap을 사용하여 긴 줄을 자동으로 자릅니다 (폭 40자 기준)
+            wrapped_lines = textwrap.wrap(line, width=42)
+            
+            for i, w_line in enumerate(wrapped_lines):
+                # 첫 줄에는 점(•)을 찍고, 이어서 나오는 줄은 들여쓰기
+                prefix = "• " if i == 0 else "  "
+                ax_note.text(0.05, y_pos, f"{prefix}{w_line}", fontsize=21, color='#333333', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
+                y_pos -= 0.09 # 줄 간격 조절
+                
         fig.canvas.draw()
     except:
         ax_note.clear()
@@ -318,7 +353,10 @@ def create_solution_image(original_image, hints):
         ax_note.add_patch(rect)
         fallback_hints = text_for_plot_fallback(hints)
         ax_note.text(0.05, 0.85, "💡 1타 강사의 핵심 Point", fontsize=24, color='#FF4500', fontweight='bold', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
-        ax_note.text(0.05, 0.65, fallback_hints, fontsize=21, color='#333333', va='top', ha='left', transform=ax_note.transAxes, wrap=True, fontproperties=font_prop)
+        
+        # Fallback에서도 줄바꿈 적용
+        wrapped_fallback = textwrap.fill(fallback_hints, width=40)
+        ax_note.text(0.05, 0.65, wrapped_fallback, fontsize=21, color='#333333', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
 
     buf = io.BytesIO()
     plt.savefig(buf, format='jpg', bbox_inches='tight', pad_inches=0)
@@ -326,7 +364,6 @@ def create_solution_image(original_image, hints):
     plt.close(fig)
     return Image.open(buf)
 
-# 🔥 [수정] 모델 선택 로직 (mode='flash' or 'pro')
 def generate_content_with_fallback(prompt, image=None, mode="flash"):
     last_error = None
     key_indices = list(range(len(API_KEYS)))
@@ -376,7 +413,6 @@ def parse_response_to_dict(text):
             data['correction'] = text.split("===CORRECTION===")[1].split("===TWIN_PROBLEM===")[0].strip()
         else: data['correction'] = "첨삭 없음"
 
-        # 🔥 쌍둥이 문제도 한 번에 파싱
         if "===TWIN_PROBLEM===" in text:
              data['twin_problem'] = text.split("===TWIN_PROBLEM===")[1].split("===TWIN_ANSWER===")[0].strip()
         else: data['twin_problem'] = "쌍둥이 문제 없음"
