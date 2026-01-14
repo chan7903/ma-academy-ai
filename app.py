@@ -142,12 +142,18 @@ def upload_to_imgbb(image_bytes):
         return None
     except: return None
 
+# 🔥 [수정됨] 한국 표준시(KST) 적용
 def save_result_to_sheet(student_name, subject, unit, summary, link, chat_log):
     client = get_sheet_client()
     if not client: return None
     try:
         sheet = client.open_by_key(SHEET_ID).worksheet("results")
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # -------------------------------------------------------------
+        # 🇰🇷 서버 시간(UTC)에 9시간을 더해 한국 시간(KST)으로 변환
+        kst = datetime.timezone(datetime.timedelta(hours=9))
+        now = datetime.datetime.now(kst).strftime("%Y-%m-%d %H:%M:%S")
+        # -------------------------------------------------------------
         
         try:
             data = summary.copy() 
@@ -219,14 +225,9 @@ def load_students_from_sheet():
     if not client: return None
     try:
         sheet = client.open_by_key(SHEET_ID).worksheet("students")
-        
-        # 🔥 [핵심 수정] get_all_records()는 숫자로 지맘대로 바꿉니다.
-        # 대신 get_all_values()를 쓰면 무조건 '문자 그대로' 가져옵니다. (0123 유지됨)
         all_data = sheet.get_all_values()
-        
         if not all_data: return None
-        
-        headers = all_data.pop(0) # 첫 줄(제목) 분리
+        headers = all_data.pop(0) 
         return pd.DataFrame(all_data, columns=headers)
     except: return None
 
@@ -286,7 +287,6 @@ def create_solution_image(original_image, hints):
     plt.close(fig)
     return Image.open(buf)
 
-# 스마트 하이브리드 AI 호출 함수
 def generate_content_with_fallback(prompt, image=None, mode="chat"):
     last_error = None
     target_models = FLASH_MODELS if mode == "chat" else PRO_MODELS
@@ -321,7 +321,6 @@ def generate_content_with_fallback(prompt, image=None, mode="chat"):
 
     raise last_error
 
-# 텍스트 파싱 함수
 def parse_response_to_dict(text):
     data = {}
     try:
@@ -382,7 +381,6 @@ if 'last_canvas_image' not in st.session_state: st.session_state['last_canvas_im
 if 'enable_canvas' not in st.session_state: st.session_state['enable_canvas'] = False
 if 'saved_timestamp' not in st.session_state: st.session_state['saved_timestamp'] = None 
 if 'last_saved_chat_len' not in st.session_state: st.session_state['last_saved_chat_len'] = 0
-# 🔥 [V3.7] 음성 중복 방지 변수 추가
 if 'last_voice_text' not in st.session_state: st.session_state['last_voice_text'] = ""
 
 def login_page():
@@ -396,10 +394,6 @@ def login_page():
             with st.spinner("학생 정보를 확인 중입니다..."):
                 df = load_students_from_sheet()
             if df is not None and not df.empty:
-                # ---------------------------------------------------------
-                # 🔥 [수정됨] 족쇄 해제! (zfill 삭제)
-                # 시트에 적힌 그대로 가져옵니다. (단, 소수점 .0은 제거)
-                # ---------------------------------------------------------
                 df['id'] = df['id'].astype(str)
                 df['pw'] = df['pw'].astype(str).apply(lambda x: x.split('.')[0])
                 
@@ -584,11 +578,10 @@ if menu == "📸 문제 풀기":
             with col_text:
                 chat_input_text = st.chat_input("질문을 입력하세요 (타자, 음성, 판서 모두 가능)")
             
-            # 🔥 [V3.7] 음성 무한 반복 방지 로직
             final_prompt = None
             if voice_text and voice_text != st.session_state['last_voice_text']:
                 final_prompt = voice_text
-                st.session_state['last_voice_text'] = voice_text # 방금 한 말 기억하기
+                st.session_state['last_voice_text'] = voice_text 
             elif chat_input_text:
                 final_prompt = chat_input_text
 
@@ -805,5 +798,3 @@ elif menu == "📒 내 오답 노트":
                         time.sleep(1)
                         st.rerun()
     else: st.info("아직 저장된 오답 노트가 없습니다.")
-
-
