@@ -388,8 +388,13 @@ def login_page():
             with st.spinner("학생 정보를 확인 중입니다..."):
                 df = load_students_from_sheet()
             if df is not None and not df.empty:
+                # ---------------------------------------------------------
+                # 🔥 [수정됨] 족쇄 해제! (zfill 삭제)
+                # 시트에 적힌 그대로 가져옵니다. (단, 소수점 .0은 제거)
+                # ---------------------------------------------------------
                 df['id'] = df['id'].astype(str)
-                df['pw'] = df['pw'].astype(str)
+                df['pw'] = df['pw'].astype(str).apply(lambda x: x.split('.')[0])
+                
                 user_data = df[df['id'] == user_id]
                 if not user_data.empty and user_data.iloc[0]['pw'] == user_pw:
                     st.session_state['is_logged_in'] = True
@@ -792,3 +797,4 @@ elif menu == "📒 내 오답 노트":
                         time.sleep(1)
                         st.rerun()
     else: st.info("아직 저장된 오답 노트가 없습니다.")
+
