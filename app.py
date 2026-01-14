@@ -746,9 +746,15 @@ elif menu == "📒 내 오답 노트":
         <h1 class="text-2xl font-bold text-[#111418]">내 오답 노트 리스트</h1>
     </div>
     """, unsafe_allow_html=True)
+    
+    # --------------------------------------------------------------------------
+    # 🔥 [수정] 중복 제거 및 데이터 파싱 강화 로직 적용
+    # --------------------------------------------------------------------------
     df = load_user_results(st.session_state['user_name'])
+    
     if not df.empty:
         my_notes = df[df['이름'] == st.session_state['user_name']].sort_values(by='날짜', ascending=False)
+        
         for index, row in my_notes.iterrows():
             with st.expander(f"📅 {row.get('날짜')} | {row.get('과목')} | {row.get('단원')}"):
                 col_img, col_txt = st.columns([1, 2])
@@ -756,10 +762,26 @@ elif menu == "📒 내 오답 노트":
                     if row.get('링크') and row.get('링크') != "이미지_없음":
                         st.image(row.get('링크'), use_column_width=True)
                     else: st.info("이미지 없음")
+                
                 with col_txt:
+                    raw_content = row.get('내용')
+                    content_json = None
+                    
+                    # 🕵️‍♂️ 데이터 파싱 시도 (백슬래시 에러 방지 처리)
                     try:
-                        content_json = ast.literal_eval(row.get('내용'))
-                        
+                        content_json = ast.literal_eval(raw_content)
+                    except:
+                        try:
+                            # 1차 구조대: 백슬래시가 하나만 있으면 에러나니까 두 개로 불려서 살려봄
+                            fixed_content = raw_content.replace("\\", "\\\\")
+                            content_json = ast.literal_eval(fixed_content)
+                        except:
+                            # 2차 구조대: 그래도 안 되면 그냥 보여줌
+                            st.warning("⚠️ 데이터 형식이 복잡하여 원본을 표시합니다.")
+                            st.text(raw_content)
+
+                    # 파싱 성공 시 예쁘게 보여주기
+                    if content_json:
                         if 'my_self_note' in content_json and content_json['my_self_note']:
                             st.markdown(f"""
                             <div class="bg-orange-50 p-3 rounded-lg border border-orange-200 mb-3">
@@ -767,6 +789,7 @@ elif menu == "📒 내 오답 노트":
                                 {content_json['my_self_note']}
                             </div>
                             """, unsafe_allow_html=True)
+                        
                         st.markdown(f"**📘 개념:** {content_json.get('concept')}")
                         st.markdown("**📝 풀이:**")
                         sol_clean = content_json.get('solution', '').replace('\n', '  \n')
@@ -789,13 +812,13 @@ elif menu == "📒 내 오답 노트":
                             st.markdown(content_json.get('twin_problem').replace('\n', '  \n'))
                             with st.expander("정답 보기"):
                                 st.markdown(content_json.get('twin_answer').replace('\n', '  \n'))
-                    except: 
-                        st.warning("데이터 형식이 오래되었거나 손상되었습니다.")
-                        st.write(row.get('내용'))
+
+                # 복습 완료 버튼
                 if st.button("✅ 오늘 복습 완료", key=f"rev_{index}"):
                     if increment_review_count(row.get('날짜'), row.get('이름')):
                         st.toast("복습 횟수가 증가했습니다!")
                         time.sleep(1)
                         st.rerun()
     else: st.info("아직 저장된 오답 노트가 없습니다.")
+
 
