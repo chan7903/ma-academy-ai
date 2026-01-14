@@ -27,7 +27,7 @@ from streamlit_mic_recorder import speech_to_text
 # [1] 기본 설정 & 디자인 주입 (HTML/Tailwind)
 # ----------------------------------------------------------
 
-# 🔥 [수정] 원장님 학원 로고 URL (진짜 이미지 주소 적용됨)
+# 🔥 원장님 학원 로고 URL
 LOGO_URL = "https://i.ibb.co/Hp34Pg7v/logo.png"
 
 st.set_page_config(
@@ -36,7 +36,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# 🔥 [수정] 스마트폰 홈 화면 아이콘 주입 (아이폰/안드로이드)
+# 스마트폰 홈 화면 아이콘 주입
 st.markdown(f"""
     <head>
         <link rel="apple-touch-icon" href="{LOGO_URL}">
@@ -70,7 +70,6 @@ st.markdown("""
             padding: 1.5rem; margin-bottom: 1.5rem;
         }
         
-        /* 채팅 메시지 스타일 */
         .stChatMessage { background-color: white; border-radius: 10px; padding: 10px; border: 1px solid #eee; }
         .stChatMessage[data-testid="user-message"] { background-color: #fff7ed; border-color: #fdba74; }
     </style>
@@ -80,7 +79,6 @@ st.markdown("""
 # [2] 유틸리티 함수 & 설정
 # ----------------------------------------------------------
 
-# 키 100개 자동 로드 로직
 try:
     API_KEYS = []
     if "GOOGLE_API_KEY" in st.secrets:
@@ -100,17 +98,18 @@ except:
     st.error("설정 오류: Secrets 접근 실패")
     st.stop()
 
-# 용도별 모델 분리 (하이브리드 전략)
+# 🔥 [전략 수정] 모델 라인업 (성능순 정렬)
+# 1. Flash 팀 (평소용 - 빠르고 똑똑함)
 FLASH_MODELS = [
-    "gemini-3-flash-preview",    
-    "gemini-2.5-flash",          
-    "gemini-2.0-flash"           
+    "gemini-3-flash-preview",     # 1순위: 최신 3세대 (압도적 성능)
+    "gemini-2.5-flash",           # 2순위: 2.5세대
+    "gemini-2.0-flash-001"        # 3순위: 2.0세대
 ]
 
+# 2. Pro 팀 (고난도용 - 깊은 생각)
 PRO_MODELS = [
-    "gemini-3-pro-preview",      
-    "gemini-2.5-pro",            
-    "deep-research-pro-preview-12-2025" 
+    "gemini-3-pro-preview",       # 1순위: 3세대 Pro
+    "gemini-2.5-pro"              # 2순위: 2.5세대 Pro
 ]
 
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
@@ -159,18 +158,13 @@ def upload_to_imgbb(image_bytes):
         return None
     except: return None
 
-# 🔥 [수정됨] 한국 표준시(KST) 적용
 def save_result_to_sheet(student_name, subject, unit, summary, link, chat_log):
     client = get_sheet_client()
     if not client: return None
     try:
         sheet = client.open_by_key(SHEET_ID).worksheet("results")
-        
-        # -------------------------------------------------------------
-        # 🇰🇷 서버 시간(UTC)에 9시간을 더해 한국 시간(KST)으로 변환
         kst = datetime.timezone(datetime.timedelta(hours=9))
         now = datetime.datetime.now(kst).strftime("%Y-%m-%d %H:%M:%S")
-        # -------------------------------------------------------------
         
         try:
             data = summary.copy() 
@@ -183,6 +177,34 @@ def save_result_to_sheet(student_name, subject, unit, summary, link, chat_log):
         st.toast("✅ 학습 기록 저장 완료!", icon="💾")
         return now 
     except: return None
+
+# 🔥 [수정] 덮어쓰기 저장용 함수 (Pro 업데이트용)
+def overwrite_result_in_sheet(student_name, target_time, new_summary):
+    client = get_sheet_client()
+    if not client: return False
+    try:
+        sheet = client.open_by_key(SHEET_ID).worksheet("results")
+        records = sheet.get_all_records()
+        row_idx = -1
+        
+        for i, record in enumerate(records):
+            if str(record.get('날짜')) == str(target_time) and str(record.get('이름')) == str(student_name):
+                row_idx = i + 2
+                current_content_str = record.get('내용')
+                break
+        
+        if row_idx != -1:
+            try:
+                # 기존 데이터 가져와서 내용만 교체
+                data = ast.literal_eval(current_content_str)
+                data.update(new_summary) # 새로운 Pro 분석 결과로 업데이트
+                
+                updated_content = str(data)
+                sheet.update_cell(row_idx, 5, updated_content)
+                return True
+            except: return False
+        return False
+    except: return False
 
 def update_chat_log_in_sheet(student_name, target_time, new_chat_log):
     client = get_sheet_client()
@@ -209,7 +231,6 @@ def update_chat_log_in_sheet(student_name, target_time, new_chat_log):
         return False
     except: return False
 
-# 🔥 [추가] 쌍둥이 문제 업데이트 함수
 def update_twin_data_in_sheet(student_name, target_time, twin_data):
     client = get_sheet_client()
     if not client: return False
@@ -227,10 +248,8 @@ def update_twin_data_in_sheet(student_name, target_time, twin_data):
         if row_idx != -1:
             try:
                 data = ast.literal_eval(current_content_str)
-                # 기존 데이터에 쌍둥이 문제 추가/덮어쓰기
                 data['twin_problem'] = twin_data.get('twin_problem')
                 data['twin_answer'] = twin_data.get('twin_answer')
-                
                 updated_content = str(data)
                 sheet.update_cell(row_idx, 5, updated_content)
                 return True
@@ -333,11 +352,17 @@ def create_solution_image(original_image, hints):
     plt.close(fig)
     return Image.open(buf)
 
-def generate_content_with_fallback(prompt, image=None, mode="chat"):
+# 🔥 [수정] 모델 선택 로직 (mode='flash' or 'pro')
+def generate_content_with_fallback(prompt, image=None, mode="flash"):
     last_error = None
-    target_models = FLASH_MODELS if mode == "chat" else PRO_MODELS
     key_indices = list(range(len(API_KEYS)))
     random.shuffle(key_indices)
+
+    # 모드에 따라 모델 리스트 결정
+    if mode == "pro":
+        target_models = PRO_MODELS
+    else:
+        target_models = FLASH_MODELS
 
     for model_name in target_models:
         for key_idx in key_indices:
@@ -353,18 +378,6 @@ def generate_content_with_fallback(prompt, image=None, mode="chat"):
                 time.sleep(0.5) 
                 continue
     
-    if mode == "final":
-        for model_name in FLASH_MODELS:
-            for key_idx in key_indices:
-                current_key = API_KEYS[key_idx]
-                try:
-                    genai.configure(api_key=current_key)
-                    model = genai.GenerativeModel(model_name)
-                    if image: response = model.generate_content([prompt, image])
-                    else: response = model.generate_content(prompt)
-                    return response.text, f"⚠️ {model_name} (Backup)"
-                except: continue
-
     raise last_error
 
 def parse_response_to_dict(text):
@@ -674,7 +687,8 @@ if menu == "📸 문제 풀기":
                             img_array = st.session_state['last_canvas_image'].astype('uint8')
                             img_to_send = Image.fromarray(img_array, 'RGBA').convert('RGB')
 
-                        response_text, _ = generate_content_with_fallback(tutor_prompt, img_to_send, mode="chat")
+                        # 채팅은 무조건 Flash (속도)
+                        response_text, _ = generate_content_with_fallback(tutor_prompt, img_to_send, mode="flash")
                         st.session_state['chat_messages'].append({"role": "ai", "content": response_text})
                         st.rerun()
                     except Exception as e:
@@ -695,8 +709,8 @@ if menu == "📸 문제 풀기":
             if not st.session_state['analysis_result']:
                 st.info("💡 충분히 고민하고 정리를 마쳤다면, 아래 버튼을 눌러 해설을 확인하세요.")
                 if st.button("🔐 정답 및 1타 풀이 공개 (저장)", type="primary"):
-                    with st.spinner("1타 강사 해설을 생성하고 오답노트에 저장 중입니다... (1단계)"):
-                        # 🔥 [수정 1] 1차 프롬프트: 쌍둥이 문제 제외 (속도 UP)
+                    with st.spinner("1타 강사 해설을 생성하고 오답노트에 저장 중입니다... (1단계 - Flash)"):
+                        # 공통 프롬프트
                         final_prompt_main = f"""
                         당신은 대한민국 최고의 수능 수학 '1타 강사'입니다. (과목:{st.session_state['selected_subject']})
                         이미지를 분석하여 다음 항목을 명확히 구분하여 출력하세요.
@@ -730,13 +744,12 @@ if menu == "📸 문제 풀기":
                         [총평], [틀린 곳], [올바른 방향] 형식으로 작성)
                         """
                         try:
-                            # 1차 생성 (해설만)
-                            res_text, _ = generate_content_with_fallback(final_prompt_main, st.session_state['gemini_image'], mode="final")
+                            # 🔥 기본 생성은 Flash 모델 사용 (속도)
+                            res_text, _ = generate_content_with_fallback(final_prompt_main, st.session_state['gemini_image'], mode="flash")
                             
                             data = parse_response_to_dict(res_text)
                             data['my_self_note'] = st.session_state['self_note']
                             
-                            # 쌍둥이 문제 없음 처리
                             data['twin_problem'] = "쌍둥이 문제 없음"
                             data['twin_answer'] = "정답 없음"
                             
@@ -779,10 +792,62 @@ if menu == "📸 문제 풀기":
                         st.markdown("---")
                         st.markdown(f"**📝 첨삭 지도:**\n{res.get('correction').replace(chr(10), '  '+chr(10))}")
 
-                # 🔥 [수정 2] 쌍둥이 문제 분리 (버튼으로 실행)
+                # 🔥 [추가] 고난도 심화 분석 버튼 (Pro 모델 호출)
+                st.markdown("---")
+                if st.button("🚨 고난도 심화 분석 요청 (Pro 모델)", type="secondary"):
+                    with st.spinner("Pro 모델이 문제를 깊게 분석하고 재작성 중입니다... (약 15초 소요)"):
+                         # 프롬프트 재사용 (Pro에게 전달)
+                        final_prompt_pro = f"""
+                        당신은 대한민국 최고의 수능 수학 '1타 강사'입니다.
+                        학생이 '고난도 심화 분석'을 요청했습니다. 
+                        앞선 분석보다 훨씬 더 깊이 있고 논리적인 정석 풀이와, 킬러 문항도 뚫어버리는 강력한 숏컷을 다시 작성하세요.
+                        (기존 분석 내용을 완전히 덮어씌웁니다.)
+
+                        **[핵심 지침]**
+                        1. **절대 JSON 포맷을 사용하지 마세요.**
+                        2. 아래의 구분자(===...===)를 사용하여 내용을 명확히 나누세요.
+                        3. **모든 수식은 LaTeX($$)를 사용하세요.**
+
+                        **[출력 형식]**
+                        ===CONCEPT===
+                        (심화 개념)
+                        ===HINT===
+                        (결정적 힌트)
+                        ===SOLUTION===
+                        (논리적이고 치밀한 정석 풀이)
+                        ===SHORTCUT===
+                        (고난도 문제용 실전 숏컷)
+                        ===CORRECTION===
+                        (학생의 사고 과정에 대한 깊이 있는 피드백)
+                        """
+                        try:
+                            # 🔥 Pro 모델 호출
+                            res_text_pro, _ = generate_content_with_fallback(final_prompt_pro, st.session_state['gemini_image'], mode="pro")
+                            data_pro = parse_response_to_dict(res_text_pro)
+                            data_pro['my_self_note'] = st.session_state['self_note']
+                            
+                            # 기존 쌍둥이 문제 유지
+                            data_pro['twin_problem'] = st.session_state['analysis_result'].get('twin_problem')
+                            data_pro['twin_answer'] = st.session_state['analysis_result'].get('twin_answer')
+
+                            st.session_state['analysis_result'] = data_pro
+                            
+                            # 시트 덮어쓰기
+                            if st.session_state['saved_timestamp']:
+                                overwrite_result_in_sheet(
+                                    st.session_state['user_name'], 
+                                    st.session_state['saved_timestamp'], 
+                                    data_pro
+                                )
+                            st.toast("Pro 분석으로 업데이트되었습니다!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Pro 분석 오류: {e}")
+
+                # 🔥 쌍둥이 문제 버튼
                 if res.get('twin_problem') == "쌍둥이 문제 없음":
                     st.info("💡 더 완벽하게 공부하고 싶다면?")
-                    if st.button("📝 쌍둥이 문제 도전하기 (심화 학습)", type="secondary"):
+                    if st.button("📝 쌍둥이 문제 도전하기 (심화 학습)"):
                          with st.spinner("AI가 비슷한 유형의 문제를 창작 중입니다... (2단계)"):
                             twin_prompt = f"""
                             당신은 대한민국 최고의 수능 수학 '1타 강사'입니다.
@@ -795,15 +860,13 @@ if menu == "📸 문제 풀기":
                             (정답 및 간단 해설. LaTeX 사용)
                             """
                             try:
-                                # 2차 생성 (쌍둥이 문제만)
-                                res_text_twin, _ = generate_content_with_fallback(twin_prompt, st.session_state['gemini_image'], mode="final")
+                                # 쌍둥이 문제도 기본은 Flash (속도)
+                                res_text_twin, _ = generate_content_with_fallback(twin_prompt, st.session_state['gemini_image'], mode="flash")
                                 twin_data = parse_response_to_dict(res_text_twin)
                                 
-                                # 데이터 합치기
                                 st.session_state['analysis_result']['twin_problem'] = twin_data.get('twin_problem')
                                 st.session_state['analysis_result']['twin_answer'] = twin_data.get('twin_answer')
                                 
-                                # 시트 업데이트
                                 if st.session_state['saved_timestamp']:
                                     update_twin_data_in_sheet(
                                         st.session_state['user_name'], 
@@ -814,7 +877,6 @@ if menu == "📸 문제 풀기":
                             except Exception as e:
                                 st.error(f"문제 생성 오류: {e}")
                 else:
-                    # 쌍둥이 문제가 이미 있는 경우 표시
                     with st.expander("📝 쌍둥이 문제 확인", expanded=True):
                         st.write(res.get('twin_problem'))
                         if st.button("정답 보기"):
@@ -837,7 +899,6 @@ elif menu == "📒 내 오답 노트":
         my_notes = df[df['이름'] == st.session_state['user_name']].sort_values(by='날짜', ascending=False)
         
         for index, row in my_notes.iterrows():
-            # [1] 바깥쪽 상자 (여기는 expander 써도 됨)
             with st.expander(f"📅 {row.get('날짜')} | {row.get('과목')} | {row.get('단원')}"):
                 col_img, col_txt = st.columns([1, 2])
                 with col_img:
@@ -849,19 +910,16 @@ elif menu == "📒 내 오답 노트":
                     raw_content = row.get('내용')
                     content_json = None
                     
-                    # 🔥 [수정 1] 백슬래시 에러 방지 (심폐소생술)
                     try:
                         content_json = ast.literal_eval(raw_content)
                     except:
                         try:
-                            # 백슬래시를 2개로 불려서 파이썬이 읽을 수 있게 변환
                             fixed_content = raw_content.replace("\\", "\\\\")
                             content_json = ast.literal_eval(fixed_content)
                         except:
                             st.warning("⚠️ 데이터 형식이 복잡하여 원본을 표시합니다.")
                             st.text(raw_content)
 
-                    # 파싱 성공 시 예쁘게 보여주기
                     if content_json:
                         if 'my_self_note' in content_json and content_json['my_self_note']:
                             st.markdown(f"""
@@ -881,10 +939,8 @@ elif menu == "📒 내 오답 노트":
                             st.markdown("---")
                             st.markdown(f"**📝 첨삭 지도:**\n{content_json.get('correction').replace(chr(10), '  '+chr(10))}")
 
-                        # 🔥 [수정 2] 중첩 Expander 에러 해결 -> 체크박스로 변경
                         if 'chat_history' in content_json and content_json['chat_history']:
                             st.markdown("---")
-                            # key를 index와 섞어서 고유하게 만들어야 에러가 안 남
                             if st.checkbox("💬 튜터링 대화 기록 보기", key=f"chat_view_{index}"):
                                 for msg in content_json['chat_history']:
                                     role = "🤖 선생님" if msg['role'] == 'ai' else "🧑‍🎓 나"
@@ -894,11 +950,9 @@ elif menu == "📒 내 오답 노트":
                             st.divider()
                             st.markdown("**📝 쌍둥이 문제**")
                             st.markdown(content_json.get('twin_problem').replace('\n', '  \n'))
-                            # 여기도 중첩 expander 대신 체크박스 사용
                             if st.checkbox("정답 보기", key=f"twin_ans_{index}"):
                                 st.markdown(content_json.get('twin_answer').replace('\n', '  \n'))
 
-                # 복습 완료 버튼
                 if st.button("✅ 오늘 복습 완료", key=f"rev_{index}"):
                     if increment_review_count(row.get('날짜'), row.get('이름')):
                         st.toast("복습 횟수가 증가했습니다!")
