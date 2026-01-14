@@ -26,7 +26,24 @@ from streamlit_mic_recorder import speech_to_text
 # ----------------------------------------------------------
 # [1] 기본 설정 & 디자인 주입 (HTML/Tailwind)
 # ----------------------------------------------------------
-st.set_page_config(page_title="MathAI Pro: Smart Tutor", page_icon="🏫", layout="wide")
+
+# 🔥 [수정] 원장님 학원 로고 URL 적용
+LOGO_URL = "https://ibb.co/qFVjg1BG"
+
+st.set_page_config(
+    page_title="MathAI Pro: Smart Tutor", 
+    page_icon=LOGO_URL, 
+    layout="wide"
+)
+
+# 🔥 [수정] 스마트폰 홈 화면 아이콘 주입 (아이폰/안드로이드)
+st.markdown(f"""
+    <head>
+        <link rel="apple-touch-icon" href="{LOGO_URL}">
+        <link rel="icon" type="image/png" href="{LOGO_URL}">
+        <link rel="shortcut icon" type="image/png" href="{LOGO_URL}">
+    </head>
+""", unsafe_allow_html=True)
 
 # Tailwind CSS & 폰트 주입
 st.markdown("""
@@ -431,6 +448,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 with st.sidebar:
+
+    # [앱 상단에 설치 유도 문구 추가]
+with st.expander("📲 앱 설치(아이콘 만들기) 방법 (클릭)", expanded=False):
+    st.write("1. (아이폰) 하단 '공유' 버튼 → '홈 화면에 추가'")
+    st.write("2. (갤럭시) 우측 상단 '점 3개' → '홈 화면에 추가' 또는 '앱 설치'")
+    
     st.markdown(f"### 👋 반가워요, {st.session_state['user_name']}님!")
     menu = st.radio("학습 메뉴", ["📸 문제 풀기", "📒 내 오답 노트"])
     
@@ -822,6 +845,3 @@ elif menu == "📒 내 오답 노트":
                         time.sleep(1)
                         st.rerun()
     else: st.info("아직 저장된 오답 노트가 없습니다.")
-
-
-
