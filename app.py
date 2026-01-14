@@ -747,15 +747,14 @@ elif menu == "📒 내 오답 노트":
     </div>
     """, unsafe_allow_html=True)
     
-    # --------------------------------------------------------------------------
-    # 🔥 [수정] 중복 제거 및 데이터 파싱 강화 로직 적용
-    # --------------------------------------------------------------------------
+    # 중복 제거 기능 적용
     df = load_user_results(st.session_state['user_name'])
     
     if not df.empty:
         my_notes = df[df['이름'] == st.session_state['user_name']].sort_values(by='날짜', ascending=False)
         
         for index, row in my_notes.iterrows():
+            # [1] 바깥쪽 상자 (여기는 expander 써도 됨)
             with st.expander(f"📅 {row.get('날짜')} | {row.get('과목')} | {row.get('단원')}"):
                 col_img, col_txt = st.columns([1, 2])
                 with col_img:
@@ -767,16 +766,15 @@ elif menu == "📒 내 오답 노트":
                     raw_content = row.get('내용')
                     content_json = None
                     
-                    # 🕵️‍♂️ 데이터 파싱 시도 (백슬래시 에러 방지 처리)
+                    # 🔥 [수정 1] 백슬래시 에러 방지 (심폐소생술)
                     try:
                         content_json = ast.literal_eval(raw_content)
                     except:
                         try:
-                            # 1차 구조대: 백슬래시가 하나만 있으면 에러나니까 두 개로 불려서 살려봄
+                            # 백슬래시를 2개로 불려서 파이썬이 읽을 수 있게 변환
                             fixed_content = raw_content.replace("\\", "\\\\")
                             content_json = ast.literal_eval(fixed_content)
                         except:
-                            # 2차 구조대: 그래도 안 되면 그냥 보여줌
                             st.warning("⚠️ 데이터 형식이 복잡하여 원본을 표시합니다.")
                             st.text(raw_content)
 
@@ -800,8 +798,11 @@ elif menu == "📒 내 오답 노트":
                             st.markdown("---")
                             st.markdown(f"**📝 첨삭 지도:**\n{content_json.get('correction').replace(chr(10), '  '+chr(10))}")
 
+                        # 🔥 [수정 2] 중첩 Expander 에러 해결 -> 체크박스로 변경
                         if 'chat_history' in content_json and content_json['chat_history']:
-                            with st.expander("💬 튜터링 대화 기록 보기"):
+                            st.markdown("---")
+                            # key를 index와 섞어서 고유하게 만들어야 에러가 안 남
+                            if st.checkbox("💬 튜터링 대화 기록 보기", key=f"chat_view_{index}"):
                                 for msg in content_json['chat_history']:
                                     role = "🤖 선생님" if msg['role'] == 'ai' else "🧑‍🎓 나"
                                     st.markdown(f"**{role}:** {msg['content']}")
@@ -810,7 +811,8 @@ elif menu == "📒 내 오답 노트":
                             st.divider()
                             st.markdown("**📝 쌍둥이 문제**")
                             st.markdown(content_json.get('twin_problem').replace('\n', '  \n'))
-                            with st.expander("정답 보기"):
+                            # 여기도 중첩 expander 대신 체크박스 사용
+                            if st.checkbox("정답 보기", key=f"twin_ans_{index}"):
                                 st.markdown(content_json.get('twin_answer').replace('\n', '  \n'))
 
                 # 복습 완료 버튼
@@ -820,5 +822,6 @@ elif menu == "📒 내 오답 노트":
                         time.sleep(1)
                         st.rerun()
     else: st.info("아직 저장된 오답 노트가 없습니다.")
+
 
 
