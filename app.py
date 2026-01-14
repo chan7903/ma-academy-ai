@@ -448,12 +448,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 with st.sidebar:
+    # 🔥 [추가] 앱 설치 안내 문구 (들여쓰기 수정 완료)
+    with st.expander("📲 앱 설치(아이콘 만들기) 방법 (클릭)", expanded=False):
+        st.write("1. (아이폰) 하단 '공유' 버튼 → '홈 화면에 추가'")
+        st.write("2. (갤럭시) 우측 상단 '점 3개' → '홈 화면에 추가' 또는 '앱 설치'")
 
-    # [앱 상단에 설치 유도 문구 추가]
-with st.expander("📲 앱 설치(아이콘 만들기) 방법 (클릭)", expanded=False):
-    st.write("1. (아이폰) 하단 '공유' 버튼 → '홈 화면에 추가'")
-    st.write("2. (갤럭시) 우측 상단 '점 3개' → '홈 화면에 추가' 또는 '앱 설치'")
-    
     st.markdown(f"### 👋 반가워요, {st.session_state['user_name']}님!")
     menu = st.radio("학습 메뉴", ["📸 문제 풀기", "📒 내 오답 노트"])
     
