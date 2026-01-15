@@ -1,5 +1,5 @@
 import streamlit as st
-import extra_streamlit_components as stx  # 🍪 쿠키 관리용
+import extra_streamlit_components as stx
 from PIL import Image
 import google.generativeai as genai
 import pandas as pd
@@ -282,6 +282,8 @@ def load_user_results(user_name):
         return pd.DataFrame(sheet.get_all_records())
     except: return pd.DataFrame()
 
+# 🔥 [수정] 학생 명단 로딩에 캐싱 적용 (속도 향상 및 로그인 버벅임 방지)
+@st.cache_data(ttl=600)
 def load_students_from_sheet():
     client = get_sheet_client()
     if not client: return None
@@ -433,7 +435,7 @@ def sanitize_json(text):
     return text
 
 # ----------------------------------------------------------
-# [3] 로그인 & 상태 관리 (쿠키 적용)
+# [3] 로그인 & 상태 관리 (쿠키 적용 - 핵심 수정됨)
 # ----------------------------------------------------------
 if 'is_logged_in' not in st.session_state: st.session_state['is_logged_in'] = False
 if 'analysis_result' not in st.session_state: st.session_state['analysis_result'] = None
@@ -449,32 +451,27 @@ if 'saved_timestamp' not in st.session_state: st.session_state['saved_timestamp'
 if 'last_saved_chat_len' not in st.session_state: st.session_state['last_saved_chat_len'] = 0
 if 'last_voice_text' not in st.session_state: st.session_state['last_voice_text'] = ""
 
-# 🍪 쿠키 매니저: key를 추가하여 상태 유지력 강화
+# 🍪 쿠키 매니저 초기화
 cookie_manager = stx.CookieManager(key="auth_cookie")
 
-def login_page():
-    # 1. 자동 로그인 체크 (쿠키 확인)
-    if not st.session_state['is_logged_in']:
-        try:
-            # 쿠키 가져오기
-            stored_user_id = cookie_manager.get(cookie="mathai_user_id")
-            
-            # 쿠키가 존재하면 자동 로그인 시도
-            if stored_user_id:
-                with st.spinner("자동 로그인 중..."):
-                    df = load_students_from_sheet()
-                    if df is not None and not df.empty:
-                        df['id'] = df['id'].astype(str)
-                        user_data = df[df['id'] == stored_user_id]
-                        if not user_data.empty:
-                            st.session_state['is_logged_in'] = True
-                            st.session_state['user_name'] = user_data.iloc[0]['name']
-                            st.toast(f"👋 {st.session_state['user_name']}님, 어서오세요!")
-                            time.sleep(0.5) 
-                            st.rerun()
-        except: pass
+# 🔥 [핵심 수정] 자동 로그인 체크 로직을 함수 밖으로 꺼냄 (앱 시작 시 무조건 1순위로 실행)
+if not st.session_state['is_logged_in']:
+    time.sleep(0.1) # 쿠키 로딩 딜레이
+    stored_user_id = cookie_manager.get(cookie="mathai_user_id")
+    if stored_user_id:
+        df = load_students_from_sheet() # 캐시된 데이터 사용
+        if df is not None and not df.empty:
+            df['id'] = df['id'].astype(str)
+            user_data = df[df['id'] == str(stored_user_id)]
+            if not user_data.empty:
+                st.session_state['is_logged_in'] = True
+                st.session_state['user_name'] = user_data.iloc[0]['name']
+                st.toast(f"👋 {st.session_state['user_name']}님, 어서오세요!")
+                time.sleep(0.5)
+                st.rerun()
 
-    # 2. 수동 로그인 화면
+# 로그인 화면 렌더링 함수
+def login_page():
     st.markdown("<h1 style='text-align: center; color:#f97316;'>🏫 MathAI Pro 로그인</h1>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -494,24 +491,23 @@ def login_page():
                     st.session_state['is_logged_in'] = True
                     st.session_state['user_name'] = user_data.iloc[0]['name']
                     
-                    # 🍪 로그인 성공 시 쿠키 발급 (7일 유효)
+                    # 🍪 쿠키 발급 (7일)
                     cookie_manager.set("mathai_user_id", user_id, expires_at=datetime.datetime.now() + datetime.timedelta(days=7))
                     
-                    # 🔥 [핵심 수정] 쿠키가 브라우저에 저장될 시간을 줌 (1초 대기)
                     st.success("로그인 성공! 이동합니다...")
-                    time.sleep(1) 
-                    
+                    time.sleep(1)
                     st.rerun()
                 else: st.error("정보가 일치하지 않습니다.")
             else: st.error("데이터베이스 연결 실패")
         st.markdown('</div>', unsafe_allow_html=True)
 
+# 🔥 [핵심 수정] 로그인 안 되어 있으면 로그인 페이지 띄우고 바로 멈춤 (아래 코드 실행 X)
 if not st.session_state['is_logged_in']:
     login_page()
     st.stop()
 
 # ----------------------------------------------------------
-# [4] UI & 기능
+# [4] UI & 기능 (로그인 된 상태에서만 여기 도달함)
 # ----------------------------------------------------------
 st.markdown("""
 <header class="sticky top-0 z-50 bg-white border-b border-gray-200 px-6 py-3 shadow-sm mb-6">
@@ -551,11 +547,10 @@ with st.sidebar:
         st.session_state['last_voice_text'] = ""
         st.rerun()
         
-    # 🍪 로그아웃 버튼 (쿠키 삭제)
+    # 🍪 로그아웃 버튼 (쿠키 삭제 및 새로고침)
     if st.button("로그아웃"):
         cookie_manager.delete("mathai_user_id") 
         st.session_state['is_logged_in'] = False
-        # 로그아웃도 시간을 살짝 주어 확실하게 처리
         time.sleep(0.5)
         st.rerun()
 
