@@ -1,5 +1,5 @@
 import streamlit as st
-import extra_streamlit_components as stx  # 🍪 [추가] 쿠키 관리용 라이브러리
+import extra_streamlit_components as stx  # 🍪 쿠키 관리용
 from PIL import Image
 import google.generativeai as genai
 import pandas as pd
@@ -116,7 +116,7 @@ SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
 
 if 'key_index' not in st.session_state: st.session_state['key_index'] = 0
 
-# @st.cache_resource
+@st.cache_resource
 def get_sheet_client():
     try:
         secrets = st.secrets["gcp_service_account"]
@@ -302,6 +302,7 @@ def text_for_plot_fallback(text):
     if not text: return ""
     return re.sub(r'[\$\\\{\}]', '', text)
 
+# 🔥 텍스트 줄바꿈 기능이 추가된 이미지 생성 함수
 def create_solution_image(original_image, hints):
     font_prop = get_handwriting_font_prop()
     w, h = original_image.size
@@ -448,8 +449,7 @@ if 'saved_timestamp' not in st.session_state: st.session_state['saved_timestamp'
 if 'last_saved_chat_len' not in st.session_state: st.session_state['last_saved_chat_len'] = 0
 if 'last_voice_text' not in st.session_state: st.session_state['last_voice_text'] = ""
 
-# 🍪 쿠키 매니저 초기화 (리소스 캐싱)
-@st.cache_resource
+# 🍪 쿠키 매니저 초기화 (수정됨: 캐싱 제거)
 def get_manager():
     return stx.CookieManager()
 
@@ -458,11 +458,9 @@ cookie_manager = get_manager()
 def login_page():
     # 1. 자동 로그인 체크 (쿠키 확인)
     if not st.session_state['is_logged_in']:
-        # 쿠키 읽기 (약간의 딜레이가 필요할 수 있어 UI 렌더링 전 확인)
         try:
             stored_user_id = cookie_manager.get(cookie="mathai_user_id")
             if stored_user_id:
-                # 쿠키가 있으면 유효성 검사 (시트에서 이름 찾기)
                 with st.spinner("자동 로그인 중..."):
                     df = load_students_from_sheet()
                     if df is not None and not df.empty:
@@ -983,4 +981,3 @@ elif menu == "📒 내 오답 노트":
                         time.sleep(1)
                         st.rerun()
     else: st.info("아직 저장된 오답 노트가 없습니다.")
-
