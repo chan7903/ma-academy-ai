@@ -449,17 +449,17 @@ if 'saved_timestamp' not in st.session_state: st.session_state['saved_timestamp'
 if 'last_saved_chat_len' not in st.session_state: st.session_state['last_saved_chat_len'] = 0
 if 'last_voice_text' not in st.session_state: st.session_state['last_voice_text'] = ""
 
-# 🍪 쿠키 매니저 초기화 (수정됨: 캐싱 제거)
-def get_manager():
-    return stx.CookieManager()
-
-cookie_manager = get_manager()
+# 🍪 쿠키 매니저: key를 추가하여 상태 유지력 강화
+cookie_manager = stx.CookieManager(key="auth_cookie")
 
 def login_page():
     # 1. 자동 로그인 체크 (쿠키 확인)
     if not st.session_state['is_logged_in']:
         try:
+            # 쿠키 가져오기
             stored_user_id = cookie_manager.get(cookie="mathai_user_id")
+            
+            # 쿠키가 존재하면 자동 로그인 시도
             if stored_user_id:
                 with st.spinner("자동 로그인 중..."):
                     df = load_students_from_sheet()
@@ -470,7 +470,7 @@ def login_page():
                             st.session_state['is_logged_in'] = True
                             st.session_state['user_name'] = user_data.iloc[0]['name']
                             st.toast(f"👋 {st.session_state['user_name']}님, 어서오세요!")
-                            time.sleep(0.5)
+                            time.sleep(0.5) 
                             st.rerun()
         except: pass
 
@@ -496,6 +496,10 @@ def login_page():
                     
                     # 🍪 로그인 성공 시 쿠키 발급 (7일 유효)
                     cookie_manager.set("mathai_user_id", user_id, expires_at=datetime.datetime.now() + datetime.timedelta(days=7))
+                    
+                    # 🔥 [핵심 수정] 쿠키가 브라우저에 저장될 시간을 줌 (1초 대기)
+                    st.success("로그인 성공! 이동합니다...")
+                    time.sleep(1) 
                     
                     st.rerun()
                 else: st.error("정보가 일치하지 않습니다.")
@@ -549,8 +553,10 @@ with st.sidebar:
         
     # 🍪 로그아웃 버튼 (쿠키 삭제)
     if st.button("로그아웃"):
-        cookie_manager.delete("mathai_user_id") # 회원권 파기
+        cookie_manager.delete("mathai_user_id") 
         st.session_state['is_logged_in'] = False
+        # 로그아웃도 시간을 살짝 주어 확실하게 처리
+        time.sleep(0.5)
         st.rerun()
 
 if menu == "📸 문제 풀기":
