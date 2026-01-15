@@ -360,7 +360,6 @@ def create_solution_image(original_image, hints):
     plt.close(fig)
     return Image.open(buf)
 
-# 🔥 [핵심 수정] 텍스트 스트리밍 기능 추가 (UI에 실시간 타자 효과)
 def generate_content_with_fallback(prompt, image=None, mode="flash", status_container=None, text_placeholder=None):
     last_error = None
     key_indices = list(range(len(API_KEYS)))
@@ -378,7 +377,6 @@ def generate_content_with_fallback(prompt, image=None, mode="flash", status_cont
                 genai.configure(api_key=current_key)
                 model = genai.GenerativeModel(model_name)
                 
-                # 🔥 스트리밍 모드 켜기
                 if image: 
                     response_stream = model.generate_content([prompt, image], stream=True)
                 else: 
@@ -388,8 +386,6 @@ def generate_content_with_fallback(prompt, image=None, mode="flash", status_cont
                 for chunk in response_stream:
                     if chunk.text:
                         full_text += chunk.text
-                        
-                        # 1. 상태창 업데이트 (교육적 멘트)
                         if status_container:
                             if "===SOLUTION===" in full_text and "===TWIN_PROBLEM===" not in full_text:
                                 status_container.update(label="✍️ 2. 1타 강사의 시선으로 풀이 작성 중...", state="running")
@@ -398,9 +394,8 @@ def generate_content_with_fallback(prompt, image=None, mode="flash", status_cont
                             elif "===CONCEPT===" in full_text:
                                 status_container.update(label="🔍 1. 문제를 스캔하고 핵심 개념을 찾는 중...", state="running")
                         
-                        # 2. 🔥 텍스트 타자 효과 (여기가 핵심!)
                         if text_placeholder:
-                            text_placeholder.markdown(full_text + "▌") # 커서 효과 포함
+                            text_placeholder.markdown(full_text + "▌")
                 
                 return full_text, f"✅ {model_name}"
             
@@ -473,7 +468,6 @@ if 'saved_timestamp' not in st.session_state: st.session_state['saved_timestamp'
 if 'last_saved_chat_len' not in st.session_state: st.session_state['last_saved_chat_len'] = 0
 if 'last_voice_text' not in st.session_state: st.session_state['last_voice_text'] = ""
 
-# 🍪 쿠키 매니저
 cookie_manager = stx.CookieManager(key="auth_cookie")
 
 if not st.session_state['is_logged_in']:
@@ -763,7 +757,7 @@ if menu == "📸 문제 풀기":
                 st.info("💡 충분히 고민하고 정리를 마쳤다면, 아래 버튼을 눌러 해설을 확인하세요.")
                 if st.button("🔐 정답 및 1타 풀이 공개 (저장)", type="primary"):
                     status_container = st.status("🚀 AI 튜터가 문제를 분석하고 있습니다...", expanded=True)
-                    text_placeholder = st.empty() # 🔥 실시간 타자 효과용 공간 생성
+                    text_placeholder = st.empty() 
                     
                     final_prompt_main = f"""
                     당신은 대한민국 최고의 수능 수학 '1타 강사'입니다. (과목:{st.session_state['selected_subject']})
@@ -810,10 +804,9 @@ if menu == "📸 문제 풀기":
                     (쌍둥이 문제 정답 및 간단 해설. LaTeX 사용)
                     """
                     try:
-                        # 🔥 스트리밍 및 타자 효과 적용
                         res_text, _ = generate_content_with_fallback(final_prompt_main, st.session_state['gemini_image'], mode="flash", status_container=status_container, text_placeholder=text_placeholder)
                         
-                        text_placeholder.empty() # 생성 완료 후 raw 텍스트 삭제 (예쁜 UI로 교체)
+                        text_placeholder.empty() 
                         status_container.update(label="✅ 분석 및 창작 완료!", state="complete", expanded=False)
                         
                         data = parse_response_to_dict(res_text)
@@ -847,25 +840,28 @@ if menu == "📸 문제 풀기":
             if st.session_state['analysis_result']:
                 res = st.session_state['analysis_result']
                 st.success("🎉 분석 완료! 오답노트에 저장되었습니다.")
-                with st.expander("📘 1타 강사의 상세 풀이 & 숏컷", expanded=True):
-                    st.markdown(f"**핵심 개념:** {res.get('concept')}")
+                
+                # 🔥 [수정] 박스 중첩 방지를 위해 Expander 대신 Header 사용
+                st.markdown("### 📘 1타 강사의 상세 풀이")
+                st.markdown(f"**핵심 개념:** {res.get('concept')}")
+                st.markdown("---")
+                st.markdown(res.get('solution').replace('\n', '  \n'))
+                
+                st.markdown("---")
+                # 🔥 [수정] 이제 Expander를 써도 에러가 안 남 (가장 바깥쪽이 Expander가 아니므로)
+                with st.expander("▶ 🔐 1타 강사의 숏컷 해설 (클릭해서 열기)"):
+                    st.info(f"⚡ **숏컷:** {res.get('shortcut')}")
+                
+                if res.get('correction') and res.get('correction') != "첨삭 없음":
                     st.markdown("---")
-                    st.markdown(res.get('solution').replace('\n', '  \n'))
-                    
-                    # 🔥 [핵심 변경] 숏컷은 숨겨두기 (스포일러 방지)
-                    st.markdown("---")
-                    with st.expander("▶ 🔐 1타 강사의 숏컷 해설 (클릭해서 열기)"):
-                        st.info(f"⚡ **숏컷:** {res.get('shortcut')}")
-                    
-                    if res.get('correction') and res.get('correction') != "첨삭 없음":
-                        st.markdown("---")
-                        st.markdown(f"**📝 첨삭 지도:**\n{res.get('correction').replace(chr(10), '  '+chr(10))}")
+                    st.markdown(f"**📝 첨삭 지도:**\n{res.get('correction').replace(chr(10), '  '+chr(10))}")
 
-                # 🔥 [핵심 변경] 쌍둥이 문제 정답 숨기기
-                with st.expander("📝 쌍둥이 문제 확인", expanded=True):
-                    st.markdown(f"**문제:**\n{res.get('twin_problem')}")
-                    with st.expander("▶ 🏆 정답 및 해설 확인 (도전!)"):
-                        st.write(res.get('twin_answer'))
+                # 🔥 [수정] 쌍둥이 문제도 Header와 Expander 조합
+                st.divider()
+                st.markdown("### 📝 쌍둥이 문제 확인")
+                st.markdown(f"**문제:**\n{res.get('twin_problem')}")
+                with st.expander("▶ 🏆 정답 및 해설 확인 (도전!)"):
+                    st.write(res.get('twin_answer'))
 
                 if st.session_state['solution_image']:
                     st.image(st.session_state['solution_image'], caption="오답노트 이미지", use_column_width=True)
@@ -873,7 +869,7 @@ if menu == "📸 문제 풀기":
                 st.markdown("---")
                 if st.button("🚨 고난도 심화 분석 요청 (Pro 모델)", type="secondary"):
                     status_container_pro = st.status("🧠 Pro 모델이 깊게 생각하는 중입니다... (약 15초)", expanded=True)
-                    text_placeholder_pro = st.empty() # Pro도 타자 효과
+                    text_placeholder_pro = st.empty() 
                     
                     final_prompt_pro = f"""
                     당신은 대한민국 최고의 수능 수학 '1타 강사'입니다.
@@ -937,7 +933,6 @@ elif menu == "📒 내 오답 노트":
     </div>
     """, unsafe_allow_html=True)
     
-    # 중복 제거 기능 적용
     df = load_user_results(st.session_state['user_name'])
     
     if not df.empty:
@@ -979,8 +974,9 @@ elif menu == "📒 내 오답 노트":
                         sol_clean = content_json.get('solution', '').replace('\n', '  \n')
                         st.markdown(sol_clean)
                         
-                        # 오답노트에서도 숏컷은 숨겨두기 (복습 효과)
-                        with st.expander("▶ 🔐 1타 강사의 숏컷 해설"):
+                        # 🔥 [수정] 오답노트: 이미 Expander 안에 있으므로 중첩 방지를 위해 체크박스 사용
+                        st.markdown("---")
+                        if st.checkbox("🔐 1타 강사의 숏컷 해설 보기", key=f"short_view_{index}"):
                             st.info(f"⚡ **숏컷:** {content_json.get('shortcut')}")
                         
                         if content_json.get('correction') and content_json.get('correction') != "첨삭 없음":
@@ -998,8 +994,8 @@ elif menu == "📒 내 오답 노트":
                             st.divider()
                             st.markdown("**📝 쌍둥이 문제**")
                             st.markdown(content_json.get('twin_problem').replace('\n', '  \n'))
-                            # 오답노트에서도 정답 숨기기
-                            with st.expander("▶ 🏆 정답 및 해설 확인"):
+                            # 🔥 [수정] 여기도 중첩 방지 체크박스
+                            if st.checkbox("🏆 정답 및 해설 확인", key=f"twin_ans_view_{index}"):
                                 st.markdown(content_json.get('twin_answer').replace('\n', '  \n'))
 
                 if st.button("✅ 오늘 복습 완료", key=f"rev_{index}"):
