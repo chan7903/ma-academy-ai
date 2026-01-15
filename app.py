@@ -116,7 +116,7 @@ SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
 
 if 'key_index' not in st.session_state: st.session_state['key_index'] = 0
 
-@st.cache_resource
+# @st.cache_resource
 def get_sheet_client():
     try:
         secrets = st.secrets["gcp_service_account"]
@@ -983,3 +983,4 @@ elif menu == "📒 내 오답 노트":
                         time.sleep(1)
                         st.rerun()
     else: st.info("아직 저장된 오답 노트가 없습니다.")
+
