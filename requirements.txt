@@ -12,3 +12,4 @@ requests
 streamlit-drawable-canvas
 streamlit-mic-recorder
 SpeechRecognition
+extra-streamlit-components
