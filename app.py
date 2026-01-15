@@ -1,4 +1,5 @@
 import streamlit as st
+import extra_streamlit_components as stx  # 🍪 [추가] 쿠키 관리용 라이브러리
 from PIL import Image
 import google.generativeai as genai
 import pandas as pd
@@ -18,7 +19,7 @@ import re
 import random 
 import ast
 import numpy as np
-import textwrap  # 🔥 [추가] 텍스트 자동 줄바꿈을 위한 라이브러리
+import textwrap
 
 # 🔥 [추가 라이브러리] 판서 및 음성 기능용
 from streamlit_drawable_canvas import st_canvas
@@ -301,7 +302,6 @@ def text_for_plot_fallback(text):
     if not text: return ""
     return re.sub(r'[\$\\\{\}]', '', text)
 
-# 🔥 [수정] 텍스트 줄바꿈 기능이 추가된 이미지 생성 함수
 def create_solution_image(original_image, hints):
     font_prop = get_handwriting_font_prop()
     w, h = original_image.size
@@ -328,8 +328,7 @@ def create_solution_image(original_image, hints):
         safe_hints = clean_text_for_plot_safe(hints)
         ax_note.text(0.05, 0.88, "💡 1타 강사의 핵심 Point", fontsize=24, color='#FF4500', fontweight='bold', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
         
-        # 🔥 [핵심 수정] 줄바꿈 처리 로직 개선
-        # 1. 슬래시(/)나 엔터로 구분된 항목을 먼저 나눕니다.
+        # 줄바꿈 및 목록 처리 개선
         pre_lines = safe_hints.replace(' / ', '\n').split('\n')
         
         y_pos = 0.72
@@ -337,14 +336,12 @@ def create_solution_image(original_image, hints):
             line = line.strip()
             if not line: continue
             
-            # 2. textwrap을 사용하여 긴 줄을 자동으로 자릅니다 (폭 40자 기준)
             wrapped_lines = textwrap.wrap(line, width=42)
             
             for i, w_line in enumerate(wrapped_lines):
-                # 첫 줄에는 점(•)을 찍고, 이어서 나오는 줄은 들여쓰기
                 prefix = "• " if i == 0 else "  "
                 ax_note.text(0.05, y_pos, f"{prefix}{w_line}", fontsize=21, color='#333333', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
-                y_pos -= 0.09 # 줄 간격 조절
+                y_pos -= 0.09 
                 
         fig.canvas.draw()
     except:
@@ -354,7 +351,6 @@ def create_solution_image(original_image, hints):
         fallback_hints = text_for_plot_fallback(hints)
         ax_note.text(0.05, 0.85, "💡 1타 강사의 핵심 Point", fontsize=24, color='#FF4500', fontweight='bold', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
         
-        # Fallback에서도 줄바꿈 적용
         wrapped_fallback = textwrap.fill(fallback_hints, width=40)
         ax_note.text(0.05, 0.65, wrapped_fallback, fontsize=21, color='#333333', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
 
@@ -436,7 +432,7 @@ def sanitize_json(text):
     return text
 
 # ----------------------------------------------------------
-# [3] 로그인 & 상태 관리
+# [3] 로그인 & 상태 관리 (쿠키 적용)
 # ----------------------------------------------------------
 if 'is_logged_in' not in st.session_state: st.session_state['is_logged_in'] = False
 if 'analysis_result' not in st.session_state: st.session_state['analysis_result'] = None
@@ -452,13 +448,42 @@ if 'saved_timestamp' not in st.session_state: st.session_state['saved_timestamp'
 if 'last_saved_chat_len' not in st.session_state: st.session_state['last_saved_chat_len'] = 0
 if 'last_voice_text' not in st.session_state: st.session_state['last_voice_text'] = ""
 
+# 🍪 쿠키 매니저 초기화 (리소스 캐싱)
+@st.cache_resource
+def get_manager():
+    return stx.CookieManager()
+
+cookie_manager = get_manager()
+
 def login_page():
+    # 1. 자동 로그인 체크 (쿠키 확인)
+    if not st.session_state['is_logged_in']:
+        # 쿠키 읽기 (약간의 딜레이가 필요할 수 있어 UI 렌더링 전 확인)
+        try:
+            stored_user_id = cookie_manager.get(cookie="mathai_user_id")
+            if stored_user_id:
+                # 쿠키가 있으면 유효성 검사 (시트에서 이름 찾기)
+                with st.spinner("자동 로그인 중..."):
+                    df = load_students_from_sheet()
+                    if df is not None and not df.empty:
+                        df['id'] = df['id'].astype(str)
+                        user_data = df[df['id'] == stored_user_id]
+                        if not user_data.empty:
+                            st.session_state['is_logged_in'] = True
+                            st.session_state['user_name'] = user_data.iloc[0]['name']
+                            st.toast(f"👋 {st.session_state['user_name']}님, 어서오세요!")
+                            time.sleep(0.5)
+                            st.rerun()
+        except: pass
+
+    # 2. 수동 로그인 화면
     st.markdown("<h1 style='text-align: center; color:#f97316;'>🏫 MathAI Pro 로그인</h1>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown('<div class="math-card">', unsafe_allow_html=True)
         user_id = st.text_input("아이디")
         user_pw = st.text_input("비밀번호", type="password")
+        
         if st.button("로그인"):
             with st.spinner("학생 정보를 확인 중입니다..."):
                 df = load_students_from_sheet()
@@ -470,6 +495,10 @@ def login_page():
                 if not user_data.empty and user_data.iloc[0]['pw'] == user_pw:
                     st.session_state['is_logged_in'] = True
                     st.session_state['user_name'] = user_data.iloc[0]['name']
+                    
+                    # 🍪 로그인 성공 시 쿠키 발급 (7일 유효)
+                    cookie_manager.set("mathai_user_id", user_id, expires_at=datetime.datetime.now() + datetime.timedelta(days=7))
+                    
                     st.rerun()
                 else: st.error("정보가 일치하지 않습니다.")
             else: st.error("데이터베이스 연결 실패")
@@ -520,7 +549,9 @@ with st.sidebar:
         st.session_state['last_voice_text'] = ""
         st.rerun()
         
+    # 🍪 로그아웃 버튼 (쿠키 삭제)
     if st.button("로그아웃"):
+        cookie_manager.delete("mathai_user_id") # 회원권 파기
         st.session_state['is_logged_in'] = False
         st.rerun()
 
@@ -719,7 +750,7 @@ if menu == "📸 문제 풀기":
                 st.info("💡 충분히 고민하고 정리를 마쳤다면, 아래 버튼을 눌러 해설을 확인하세요.")
                 if st.button("🔐 정답 및 1타 풀이 공개 (저장)", type="primary"):
                     with st.spinner("1타 강사 해설 및 쌍둥이 문제를 생성하고 저장 중입니다..."):
-                        # 🔥🔥 [최종 복구된 프롬프트] 필수 체크 리스트 5가지 완전 부활!
+                        # 🔥 통합 프롬프트: 해설 + 쌍둥이 문제 (API 1번 호출)
                         final_prompt_main = f"""
                         당신은 대한민국 최고의 수능 수학 '1타 강사'입니다. (과목:{st.session_state['selected_subject']})
                         이미지를 분석하여 다음 항목을 명확히 구분하여 출력하세요.
