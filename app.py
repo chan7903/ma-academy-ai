@@ -109,7 +109,7 @@ FLASH_MODELS = [
 
 PRO_MODELS = [
     "gemini-3-pro-preview",       
-    "gemini-2.5-pro"              
+    "gemini-exp-1206"              
 ]
 
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
@@ -1003,3 +1003,4 @@ elif menu == "📒 내 오답 노트":
                         time.sleep(1)
                         st.rerun()
     else: st.info("아직 저장된 오답 노트가 없습니다.")
+
