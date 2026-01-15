@@ -388,7 +388,7 @@ def generate_content_with_fallback(prompt, image=None, mode="flash", status_cont
                         full_text += chunk.text
                         if status_container:
                             if "===SOLUTION===" in full_text and "===TWIN_PROBLEM===" not in full_text:
-                                status_container.update(label="✍️ 2. 1타 강사의 시선으로 풀이 작성 중...", state="running")
+                                status_container.update(label="✍️ 2. 상세 풀이 작성 중...", state="running")
                             elif "===TWIN_PROBLEM===" in full_text:
                                 status_container.update(label="👯‍♀️ 3. 비슷한 쌍둥이 문제 창작 중...", state="running")
                             elif "===CONCEPT===" in full_text:
@@ -841,22 +841,21 @@ if menu == "📸 문제 풀기":
                 res = st.session_state['analysis_result']
                 st.success("🎉 분석 완료! 오답노트에 저장되었습니다.")
                 
-                # 🔥 [수정] 박스 중첩 방지를 위해 Expander 대신 Header 사용
-                st.markdown("### 📘 1타 강사의 상세 풀이")
+                # 🔥 [UI 수정] '1타 강사' 멘트 삭제 및 전문적인 표현 사용
+                st.markdown("### 📘 상세 풀이")
                 st.markdown(f"**핵심 개념:** {res.get('concept')}")
                 st.markdown("---")
                 st.markdown(res.get('solution').replace('\n', '  \n'))
                 
                 st.markdown("---")
-                # 🔥 [수정] 이제 Expander를 써도 에러가 안 남 (가장 바깥쪽이 Expander가 아니므로)
-                with st.expander("▶ 🔐 1타 강사의 숏컷 해설 (클릭해서 열기)"):
+                # 🔥 [UI 수정] 숏컷 버튼 텍스트 변경
+                with st.expander("▶ 🔐 숏컷 해설 (핵심 비법)"):
                     st.info(f"⚡ **숏컷:** {res.get('shortcut')}")
                 
                 if res.get('correction') and res.get('correction') != "첨삭 없음":
                     st.markdown("---")
                     st.markdown(f"**📝 첨삭 지도:**\n{res.get('correction').replace(chr(10), '  '+chr(10))}")
 
-                # 🔥 [수정] 쌍둥이 문제도 Header와 Expander 조합
                 st.divider()
                 st.markdown("### 📝 쌍둥이 문제 확인")
                 st.markdown(f"**문제:**\n{res.get('twin_problem')}")
@@ -871,18 +870,19 @@ if menu == "📸 문제 풀기":
                     status_container_pro = st.status("🧠 Pro 모델이 깊게 생각하는 중입니다... (약 15초)", expanded=True)
                     text_placeholder_pro = st.empty() 
                     
+                    # 🔥🔥🔥 [Pro 프롬프트 대폭 강화: 도형/기하/암흑스킬 우선 적용] 🔥🔥🔥
                     final_prompt_pro = f"""
                     당신은 대한민국 최고의 수능 수학 '1타 강사'입니다.
                     학생이 '고난도 심화 분석'을 요청했습니다. 
-                    앞선 분석보다 훨씬 더 깊이 있고 논리적인 정석 풀이와, 킬러 문항도 뚫어버리는 강력한 숏컷을 다시 작성하세요.
-                    (기존 분석 내용을 완전히 덮어씌웁니다.)
+                    단순한 계산 나열이 아니라, **문제의 본질을 꿰뚫는 통찰(Insight)**을 보여주세요.
 
-                    **[필수 체크 리스트 (예시)]**
-                    1. **[다항함수]** 3차/4차함수 비율 관계(2:1, 3:1), 넓이 공식(1/6, 1/12), 높이차 공식, 변곡점 대칭성.
-                    2. **[수열]** 등차수열 합의 기하학적 해석(상수항 없는 2차함수), 등차중항(평균), 등비수열 덩어리 합.
-                    3. **[미분/적분]** 이차함수 두 점 사이 기울기(=중점의 미분계수), 0 근처 근사(sin x ≈ x, tan x ≈ x).
-                    4. **[삼각/기하]** 사인법칙(지름의 지배), 코사인법칙(피타고라스 보정), 단위원 해석, 중선 정리.
-                    5. **[확통/경우의 수]** 같은 것이 있는 순열(묶어서 처리 vs 자리 뽑기), 여사건의 빠른 판단, 독립시행의 확률 분포 직관.
+                    **[Deep Thinking Protocol: 심층 사고 단계]**
+                    1. **[Geometry First]**: 문제를 보자마자 수식(Algebra)으로 덤비지 마세요. 
+                       - **초등학교/중학교 도형(기하)의 성질** (닮음비, 합동, 원주각, 대칭성, 특수각 삼각형)로 풀 수 있는지 최우선으로 스캔하세요.
+                       - "이 문제는 겉보기엔 미적분이지만, 실은 중2 닮음 문제입니다"와 같은 통찰을 보여주세요.
+                    2. **[Dark Skills]**: 최상위권들만 아는 **'실전 스킬(Dark Skills)'**을 적극적으로 적용하세요.
+                       - 예: 3/4차함수 비율 관계, 로피탈, 테일러 급수 근사(sin x ≈ x), 신발끈 공식, N축 스킬, 파푸스-굴딘 등.
+                    3. **[Integrated Thinking]**: 초1부터 고3까지의 모든 교육과정을 연결하여 가장 빠르고 직관적인 길을 제시하세요.
 
                     **[핵심 지침]**
                     1. **절대 JSON 포맷을 사용하지 마세요.**
@@ -891,15 +891,15 @@ if menu == "📸 문제 풀기":
 
                     **[출력 형식]**
                     ===CONCEPT===
-                    (심화 개념)
+                    (심화 개념 및 출제 의도)
                     ===HINT===
-                    (결정적 힌트)
+                    (결정적 힌트: 도형의 보조선이나 특수 스킬 언급)
                     ===SOLUTION===
                     (논리적이고 치밀한 정석 풀이)
                     ===SHORTCUT===
-                    (고난도 문제용 실전 숏컷)
+                    (고난도 문제용 실전 숏컷: 암흑 스킬 및 기하학적 해석 포함)
                     ===CORRECTION===
-                    (학생의 사고 과정에 대한 깊이 있는 피드백)
+                    (학생의 사고 과정에 대한 깊이 있는 피드백 및 함정 경고)
                     """
                     try:
                         res_text_pro, _ = generate_content_with_fallback(final_prompt_pro, st.session_state['gemini_image'], mode="pro", status_container=status_container_pro, text_placeholder=text_placeholder_pro)
@@ -974,9 +974,9 @@ elif menu == "📒 내 오답 노트":
                         sol_clean = content_json.get('solution', '').replace('\n', '  \n')
                         st.markdown(sol_clean)
                         
-                        # 🔥 [수정] 오답노트: 이미 Expander 안에 있으므로 중첩 방지를 위해 체크박스 사용
+                        # 🔥 [UI 수정] 오답노트에서도 전문적인 표현으로 변경
                         st.markdown("---")
-                        if st.checkbox("🔐 1타 강사의 숏컷 해설 보기", key=f"short_view_{index}"):
+                        if st.checkbox("🔐 숏컷 해설 (핵심 비법) 보기", key=f"short_view_{index}"):
                             st.info(f"⚡ **숏컷:** {content_json.get('shortcut')}")
                         
                         if content_json.get('correction') and content_json.get('correction') != "첨삭 없음":
@@ -994,7 +994,6 @@ elif menu == "📒 내 오답 노트":
                             st.divider()
                             st.markdown("**📝 쌍둥이 문제**")
                             st.markdown(content_json.get('twin_problem').replace('\n', '  \n'))
-                            # 🔥 [수정] 여기도 중첩 방지 체크박스
                             if st.checkbox("🏆 정답 및 해설 확인", key=f"twin_ans_view_{index}"):
                                 st.markdown(content_json.get('twin_answer').replace('\n', '  \n'))
 
