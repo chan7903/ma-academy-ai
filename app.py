@@ -108,7 +108,6 @@ FLASH_MODELS = [
 ]
 
 PRO_MODELS = [
-    "gemini-exp-1206",
     "gemini-3-pro-preview"        
 ]
 
@@ -1003,5 +1002,6 @@ elif menu == "📒 내 오답 노트":
                         time.sleep(1)
                         st.rerun()
     else: st.info("아직 저장된 오답 노트가 없습니다.")
+
 
 
