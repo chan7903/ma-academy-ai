@@ -426,7 +426,7 @@ def generate_content_with_fallback(prompt, image=None, mode="flash", status_cont
     
     raise last_error
 
-# 🔥 [최종 수정] "빈 화면 방지" 절대 방어 로직 (Safe Parser)
+# 🔥 [파서] 빈 화면 방지
 def parse_response_to_dict(text):
     data = {}
     clean_text = re.sub(r'[\*\#]*={3,}\s*([A-Z_]+)\s*={3,}[\*\#]*', r'===\1===', text)
@@ -771,7 +771,7 @@ if menu == "📸 문제 풀기":
                     status_container = st.status("🚀 AI 튜터가 문제를 분석하고 있습니다...", expanded=True)
                     text_placeholder = st.empty() 
                     
-                    # 🔥 [Flash 프롬프트]
+                    # 🔥 [Flash 프롬프트: 교과서적 정석 풀이 강제 + 교육과정 필터 적용]
                     curriculum_rules = get_curriculum_prompt(st.session_state['selected_subject'])
                     
                     final_prompt_main = f"""
@@ -804,7 +804,7 @@ if menu == "📸 문제 풀기":
                     (### 🍯 [2] 숏컷 풀이 (Skill)
                     위 [필수 체크 리스트]를 활용한 수능 실전 기술 분석가의 시선으로 작성.)
                     ===CORRECTION===
-                    (학생의 노트 "{self_note}"에 대한 팩트 기반 피드백)
+                    (학생의 노트 "{st.session_state['self_note']}"에 대한 팩트 기반 피드백)
                     ===TWIN_PROBLEM===
                     (숫자 변형 유사 문제 1개. LaTeX 사용)
                     ===TWIN_ANSWER===
@@ -872,7 +872,7 @@ if menu == "📸 문제 풀기":
                     status_container_pro = st.status("🧠 Pro 모델이 깊게 생각하는 중입니다... (약 15초)", expanded=True)
                     text_placeholder_pro = st.empty() 
                     
-                    # 🔥 [Pro 프롬프트] 
+                    # 🔥 [Pro 프롬프트: 통합적 사고 + 심화]
                     final_prompt_pro = f"""
                     당신은 대한민국 수학계의 정점, '수능 해커'입니다.
                     학생이 **[고난도 심화 분석]**을 요청했습니다. 
