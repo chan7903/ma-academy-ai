@@ -107,8 +107,11 @@ FLASH_MODELS = [
     "gemini-2.0-flash-001"        
 ]
 
+# 🔥 [수정] Pro 팀: 무료이면서 수학적 추론 능력이 뛰어난 모델들로 구성
 PRO_MODELS = [
-    "gemini-3-pro-preview"        
+    "gemini-exp-1206",            # 1순위: Thinking Model (수학 강자)
+    "gemini-3-pro-preview",       # 2순위: 차세대 Pro Preview (무료 가능성 높음)
+    "deep-research-pro-preview-12-2025" # 3순위: 심층 연구 모델
 ]
 
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
@@ -715,6 +718,7 @@ if menu == "📸 문제 풀기":
                             학생이 이 풀이에 대해 추가 질문을 하고 있으니, 위 내용을 바탕으로 답변해줘.
                             """
 
+                        # 🔥 [Chatbot 프롬프트 수정] 
                         tutor_prompt = f"""
                         당신은 친절하지만 핵심을 찌르는 수학 '튜터'입니다. 과목: {st.session_state['selected_subject']}
                         
@@ -724,9 +728,9 @@ if menu == "📸 문제 풀기":
                         {history_text}
                         
                         [지시사항]
-                        1. 정답을 바로 주지 말고 힌트나 역질문을 하세요. (이미 정답을 알려준 상태라면, 보충 설명을 하세요)
-                        2. 수식은 LaTeX($$)를 사용하세요. (예: $x^2$)
-                        3. 짧고 명확하게(3문장 이내) 답변하세요.
+                        1. 기본적으로 제공된 **'정석 풀이'**의 흐름을 따라가며 힌트를 주세요.
+                        2. 학생이 먼저 묻기 전까지는 **'숏컷'**이나 **'고난도 스킬'**을 먼저 언급하지 마세요. (정석적인 이해를 우선시합니다)
+                        3. 수식은 LaTeX($$)를 사용하고, 답변은 3문장 이내로 간결하게 하세요.
                         """
                         
                         img_to_send = st.session_state['gemini_image']
@@ -758,6 +762,7 @@ if menu == "📸 문제 풀기":
                     status_container = st.status("🚀 AI 튜터가 문제를 분석하고 있습니다...", expanded=True)
                     text_placeholder = st.empty() 
                     
+                    # 🔥 [Flash 프롬프트 수정] 정석 풀이 학년 제한(Grade Lock) 추가
                     final_prompt_main = f"""
                     당신은 대한민국 최고의 수능 수학 '1타 강사'입니다. (과목:{st.session_state['selected_subject']})
                     이미지를 분석하여 다음 항목을 명확히 구분하여 출력하세요.
@@ -765,17 +770,6 @@ if menu == "📸 문제 풀기":
                     **[학생의 Self-Note]**
                     {st.session_state['self_note']}
                     (이 내용도 참고하여 첨삭을 넣어주세요.)
-
-                    **[핵심 지침: 1타 강사의 '실전 스킬' 전방위 적용]**
-                    문제의 단원을 먼저 파악하고, 해당 단원에서 고수들이 사용하는 '기하학적 해석', '비율 관계', '공식'이 있는지 최우선으로 검토하세요.
-                    아래 리스트는 **반드시 체크해야 할 대표적인 예시**이며, 리스트에 없더라도 해당 단원의 숏컷이 있다면 적극적으로 사용하세요.
-
-                    **[필수 체크 리스트 (예시)]**
-                    1. **[다항함수]** 3차/4차함수 비율 관계(2:1, 3:1), 넓이 공식(1/6, 1/12), 높이차 공식, 변곡점 대칭성.
-                    2. **[수열]** 등차수열 합의 기하학적 해석(상수항 없는 2차함수), 등차중항(평균), 등비수열 덩어리 합.
-                    3. **[미분/적분]** 이차함수 두 점 사이 기울기(=중점의 미분계수), 0 근처 근사(sin x ≈ x, tan x ≈ x).
-                    4. **[삼각/기하]** 사인법칙(지름의 지배), 코사인법칙(피타고라스 보정), 단위원 해석, 중선 정리.
-                    5. **[확통/경우의 수]** 같은 것이 있는 순열(묶어서 처리 vs 자리 뽑기), 여사건의 빠른 판단, 독립시행의 확률 분포 직관.
 
                     **[필수 지침]**
                     1. **절대 JSON 포맷을 사용하지 마세요.**
@@ -790,10 +784,11 @@ if menu == "📸 문제 풀기":
                     (단원명 / 적용된 숏컷 이름 / 핵심 힌트 1줄)
                     ===SOLUTION===
                     (### 📖 [1] 정석 풀이 (Logic Flow)
-                    교과서적인 서술형 풀이. '조건 → 식 수립 → 결과' 흐름. 번호 매기기. LaTeX 사용)
+                    교과서적인 서술형 풀이. '조건 → 식 수립 → 결과' 흐름. 
+                    ⚠️ **중요: 반드시 선택된 학년({st.session_state['selected_subject']})의 교육과정 범위 내에서만 풀 것.** 상위 학년의 개념(선행학습)은 절대 사용 금지.)
                     ===SHORTCUT===
                     (### 🍯 [2] 숏컷 풀이 (Genius Shortcut)
-                    1타 강사의 시선으로 문제를 꿰뚫어 보는 직관적 풀이. 필수 체크 리스트 적극 활용. TMI 제거.)
+                    1타 강사의 시선으로 문제를 꿰뚫어 보는 직관적 풀이. 암흑 스킬/공식 적극 활용.)
                     ===CORRECTION===
                     (학생의 풀이 또는 Self-Note에 대한 피드백/첨삭.
                     [총평], [틀린 곳], [올바른 방향] 형식으로 작성)
@@ -840,14 +835,12 @@ if menu == "📸 문제 풀기":
                 res = st.session_state['analysis_result']
                 st.success("🎉 분석 완료! 오답노트에 저장되었습니다.")
                 
-                # 🔥 [UI 수정] '1타 강사' 멘트 삭제 및 전문적인 표현 사용
                 st.markdown("### 📘 상세 풀이")
                 st.markdown(f"**핵심 개념:** {res.get('concept')}")
                 st.markdown("---")
                 st.markdown(res.get('solution').replace('\n', '  \n'))
                 
                 st.markdown("---")
-                # 🔥 [UI 수정] 숏컷 버튼 텍스트 변경
                 with st.expander("▶ 🔐 숏컷 해설 (핵심 비법)"):
                     st.info(f"⚡ **숏컷:** {res.get('shortcut')}")
                 
@@ -869,7 +862,7 @@ if menu == "📸 문제 풀기":
                     status_container_pro = st.status("🧠 Pro 모델이 깊게 생각하는 중입니다... (약 15초)", expanded=True)
                     text_placeholder_pro = st.empty() 
                     
-                    # 🔥🔥🔥 [Pro 프롬프트 대폭 강화: 도형/기하/암흑스킬 우선 적용] 🔥🔥🔥
+                    # 🔥 [Pro 프롬프트 유지] 기하학 우선, 암흑 스킬, 통합적 사고
                     final_prompt_pro = f"""
                     당신은 대한민국 최고의 수능 수학 '1타 강사'입니다.
                     학생이 '고난도 심화 분석'을 요청했습니다. 
@@ -973,7 +966,6 @@ elif menu == "📒 내 오답 노트":
                         sol_clean = content_json.get('solution', '').replace('\n', '  \n')
                         st.markdown(sol_clean)
                         
-                        # 🔥 [UI 수정] 오답노트에서도 전문적인 표현으로 변경
                         st.markdown("---")
                         if st.checkbox("🔐 숏컷 해설 (핵심 비법) 보기", key=f"short_view_{index}"):
                             st.info(f"⚡ **숏컷:** {content_json.get('shortcut')}")
@@ -1002,6 +994,3 @@ elif menu == "📒 내 오답 노트":
                         time.sleep(1)
                         st.rerun()
     else: st.info("아직 저장된 오답 노트가 없습니다.")
-
-
-
