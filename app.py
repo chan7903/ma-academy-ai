@@ -21,9 +21,9 @@ import ast
 import numpy as np
 import textwrap
 
-# 🔥 [변경] 마이크 라이브러리 제거 (에러 방지)
+# 🔥 [추가 라이브러리] 판서 및 음성 기능용
 from streamlit_drawable_canvas import st_canvas
-# from streamlit_mic_recorder import speech_to_text  <-- 이 녀석이 범인이라 잠시 껐습니다.
+from streamlit_mic_recorder import speech_to_text # 🎤 마이크 기능 복구 완료!
 
 # ----------------------------------------------------------
 # [1] 기본 설정 & 디자인 주입 (HTML/Tailwind)
@@ -100,7 +100,7 @@ except:
     st.error("설정 오류: Secrets 접근 실패")
     st.stop()
 
-# 🔥 [전략 확정] 모델 라인업 (안정성 + 지능)
+# 🔥 [전략 확정] 모델 라인업
 FLASH_MODELS = [
     "gemini-2.5-flash",           
     "gemini-2.0-flash",           
@@ -426,45 +426,37 @@ def generate_content_with_fallback(prompt, image=None, mode="flash", status_cont
     
     raise last_error
 
-# 🔥 [수정] Pro 모델 출력 오류 방지를 위한 정밀 Regex 분류기
+# 🔥 [최종 수정] "빈 화면 방지" 절대 방어 로직 (Safe Parser)
 def parse_response_to_dict(text):
     data = {}
     clean_text = re.sub(r'[\*\#]*={3,}\s*([A-Z_]+)\s*={3,}[\*\#]*', r'===\1===', text)
     
-    try:
-        if "===CONCEPT===" in clean_text:
-            data['concept'] = clean_text.split("===CONCEPT===")[1].split("===HINT===")[0].strip()
-        else: data['concept'] = "개념 분석 실패"
-        
-        if "===HINT===" in clean_text:
-            data['hint_for_image'] = clean_text.split("===HINT===")[1].split("===SOLUTION===")[0].strip()
-        else: data['hint_for_image'] = "힌트 없음"
-        
-        if "===SOLUTION===" in clean_text:
-            data['solution'] = clean_text.split("===SOLUTION===")[1].split("===SHORTCUT===")[0].strip()
-        else: data['solution'] = "풀이 생성 실패"
-        
-        if "===SHORTCUT===" in clean_text:
-            data['shortcut'] = clean_text.split("===SHORTCUT===")[1].split("===CORRECTION===")[0].strip()
-        else: data['shortcut'] = "숏컷 없음"
-        
-        if "===CORRECTION===" in clean_text:
-            data['correction'] = clean_text.split("===CORRECTION===")[1].split("===TWIN_PROBLEM===")[0].strip()
-        else: data['correction'] = "첨삭 없음"
+    def extract_section(start_tag, end_tags, default=""):
+        if start_tag not in clean_text: return default
+        try:
+            content = clean_text.split(start_tag)[1]
+            for end_tag in end_tags:
+                if end_tag in content:
+                    content = content.split(end_tag)[0]
+                    break
+            return content.strip()
+        except:
+            return default
 
-        if "===TWIN_PROBLEM===" in clean_text:
-             data['twin_problem'] = clean_text.split("===TWIN_PROBLEM===")[1].split("===TWIN_ANSWER===")[0].strip()
-        else: data['twin_problem'] = "쌍둥이 문제 없음"
+    data['concept'] = extract_section("===CONCEPT===", ["===HINT==="], "개념 분석 중...")
+    data['hint_for_image'] = extract_section("===HINT===", ["===SOLUTION==="], "힌트 없음")
+    
+    # 🔥 [핵심] 솔루션 파싱 실패 시, 원본 텍스트를 다 보여줌 (Fallback)
+    sol_candidate = extract_section("===SOLUTION===", ["===SHORTCUT===", "===CORRECTION==="], "")
+    if not sol_candidate or len(sol_candidate) < 10:
+        data['solution'] = text 
+    else:
+        data['solution'] = sol_candidate
 
-        if "===TWIN_ANSWER===" in clean_text:
-             data['twin_answer'] = clean_text.split("===TWIN_ANSWER===")[1].strip()
-        else: data['twin_answer'] = "정답 없음"
-            
-    except Exception as e:
-        data['concept'] = "자동 분석 (Parsing Error)"
-        data['solution'] = text
-        data['shortcut'] = ""
-        data['hint_for_image'] = "오류"
+    data['shortcut'] = extract_section("===SHORTCUT===", ["===CORRECTION===", "===TWIN_PROBLEM==="], "숏컷 없음")
+    data['correction'] = extract_section("===CORRECTION===", ["===TWIN_PROBLEM==="], "첨삭 없음")
+    data['twin_problem'] = extract_section("===TWIN_PROBLEM===", ["===TWIN_ANSWER==="], "문제 생성 중...")
+    data['twin_answer'] = extract_section("===TWIN_ANSWER===", [], "정답 없음")
 
     return data
 
@@ -707,12 +699,18 @@ if menu == "📸 문제 풀기":
                             st.error("저장 실패")
 
             col_mic, col_text = st.columns([0.1, 0.9])
-            # 🔥 [수정] 마이크 버튼 제거 (안전 모드)
+            with col_mic:
+                # 🎤 [복구] 마이크 기능 (이제는 안전합니다)
+                voice_text = speech_to_text(language='ko', start_prompt="🎤", stop_prompt="⏹️", just_once=False, use_container_width=True)
+            
             with col_text:
                 chat_input_text = st.chat_input("질문을 입력하세요")
             
             final_prompt = None
-            if chat_input_text:
+            if voice_text and voice_text != st.session_state['last_voice_text']:
+                final_prompt = voice_text
+                st.session_state['last_voice_text'] = voice_text 
+            elif chat_input_text:
                 final_prompt = chat_input_text
 
             if final_prompt:
@@ -804,7 +802,7 @@ if menu == "📸 문제 풀기":
                     **[지침 준수]**: 위 교육과정 규칙을 철저히 지키며, 교과서적인 서술형 풀이를 작성. 번호 매기기 필수. 선행 개념 절대 금지.)
                     ===SHORTCUT===
                     (### 🍯 [2] 숏컷 풀이
-                    실전 문제 풀이용 스킬. 여기서는 선행 개념(로피탈, 비율관계 등) 사용 가능.)
+                    실전 문제 풀이용 스킬. 여기서는 선행 개념(로피탈, 비율관계 등) 사용 가능. 자유롭게 기술.)
                     ===CORRECTION===
                     (학생의 오개념 교정. [총평], [틀린 부분], [교정] 순서.)
                     ===TWIN_PROBLEM===
@@ -850,24 +848,22 @@ if menu == "📸 문제 풀기":
                 res = st.session_state['analysis_result']
                 st.success("🎉 분석 완료! 오답노트에 저장되었습니다.")
                 
-                st.markdown("### 📘 상세 풀이")
-                st.markdown(f"**핵심 개념:** {res.get('concept')}")
-                st.markdown("---")
-                st.markdown(res.get('solution').replace('\n', '  \n'))
-                
-                st.markdown("---")
-                with st.expander("▶ 🔐 숏컷 해설 (핵심 비법)"):
-                    st.info(f"⚡ **숏컷:** {res.get('shortcut')}")
-                
-                if res.get('correction') and res.get('correction') != "첨삭 없음":
+                # 🔥 [UI 디자인 원복] expander 하나에 다 넣기
+                with st.expander("📘 1타 강사의 상세 풀이 & 숏컷", expanded=True):
+                    st.markdown(f"**핵심 개념:** {res.get('concept')}")
                     st.markdown("---")
-                    st.markdown(f"**📝 첨삭 지도:**\n{res.get('correction').replace(chr(10), '  '+chr(10))}")
+                    st.markdown(res.get('solution').replace('\n', '  \n'))
+                    st.markdown("---")
+                    st.info(f"⚡ **숏컷:** {res.get('shortcut')}")
+                    
+                    if res.get('correction') and res.get('correction') != "첨삭 없음":
+                        st.markdown("---")
+                        st.markdown(f"**📝 첨삭 지도:**\n{res.get('correction').replace(chr(10), '  '+chr(10))}")
 
-                st.divider()
-                st.markdown("### 📝 쌍둥이 문제 확인")
-                st.markdown(f"**문제:**\n{res.get('twin_problem')}")
-                with st.expander("▶ 🏆 정답 및 해설 확인 (도전!)"):
-                    st.write(res.get('twin_answer'))
+                with st.expander("📝 쌍둥이 문제 확인", expanded=True):
+                    st.write(res.get('twin_problem'))
+                    if st.button("정답 보기"):
+                        st.write(res.get('twin_answer'))
 
                 if st.session_state['solution_image']:
                     st.image(st.session_state['solution_image'], caption="오답노트 이미지", use_column_width=True)
@@ -877,27 +873,36 @@ if menu == "📸 문제 풀기":
                     status_container_pro = st.status("🧠 Pro 모델이 깊게 생각하는 중입니다... (약 15초)", expanded=True)
                     text_placeholder_pro = st.empty() 
                     
-                    # 🔥 [Pro 프롬프트: 통합적 사고 + 심화]
+                    # 🔥 [Pro 프롬프트 유지] 
                     final_prompt_pro = f"""
                     당신은 대한민국 최고의 수능 수학 '1타 강사'입니다.
                     학생이 '고난도 심화 분석'을 요청했습니다. 
-                    
-                    **[심화 분석 지침]**
-                    1. **Geometry First:** 수식 전개 전, 도형/기하학적 직관으로 풀 수 있는지 먼저 파악하십시오.
-                    2. **Integrated Thinking:** 중학교 기하부터 고등학교 미적분까지 모든 개념을 통합하여 최적의 풀이를 제시하십시오.
-                    3. **Dark Skills:** 로피탈, 편미분, 외적 등 교과 외 스킬이라도 효율적이라면 적극 소개하십시오.
+                    단순한 계산 나열이 아니라, **문제의 본질을 꿰뚫는 통찰(Insight)**을 보여주세요.
+
+                    **[Deep Thinking Protocol: 심층 사고 단계]**
+                    1. **[Geometry First]**: 문제를 보자마자 수식(Algebra)으로 덤비지 마세요. 
+                       - **초등학교/중학교 도형(기하)의 성질** (닮음비, 합동, 원주각, 대칭성, 특수각 삼각형)로 풀 수 있는지 최우선으로 스캔하세요.
+                       - "이 문제는 겉보기엔 미적분이지만, 실은 중2 닮음 문제입니다"와 같은 통찰을 보여주세요.
+                    2. **[Dark Skills]**: 최상위권들만 아는 **'실전 스킬(Dark Skills)'**을 적극적으로 적용하세요.
+                       - 예: 3/4차함수 비율 관계, 로피탈, 테일러 급수 근사(sin x ≈ x), 신발끈 공식, N축 스킬, 파푸스-굴딘 등.
+                    3. **[Integrated Thinking]**: 초1부터 고3까지의 모든 교육과정을 연결하여 가장 빠르고 직관적인 길을 제시하세요.
+
+                    **[핵심 지침]**
+                    1. **절대 JSON 포맷을 사용하지 마세요.**
+                    2. 아래의 구분자(===...===)를 사용하여 내용을 명확히 나누세요.
+                    3. **모든 수식은 LaTeX($$)를 사용하세요.**
 
                     **[출력 형식]**
                     ===CONCEPT===
-                    (심화 개념)
+                    (심화 개념 및 출제 의도)
                     ===HINT===
-                    (결정적 힌트)
+                    (결정적 힌트: 도형의 보조선이나 특수 스킬 언급)
                     ===SOLUTION===
-                    (논리적 정석 풀이)
+                    (논리적이고 치밀한 정석 풀이)
                     ===SHORTCUT===
-                    (기하학적 해석 및 암흑 스킬 포함)
+                    (고난도 문제용 실전 숏컷: 암흑 스킬 및 기하학적 해석 포함)
                     ===CORRECTION===
-                    (심층 피드백)
+                    (학생의 사고 과정에 대한 깊이 있는 피드백 및 함정 경고)
                     """
                     try:
                         res_text_pro, _ = generate_content_with_fallback(final_prompt_pro, st.session_state['gemini_image'], mode="pro", status_container=status_container_pro, text_placeholder=text_placeholder_pro)
@@ -971,10 +976,7 @@ elif menu == "📒 내 오답 노트":
                         st.markdown("**📝 풀이:**")
                         sol_clean = content_json.get('solution', '').replace('\n', '  \n')
                         st.markdown(sol_clean)
-                        
-                        st.markdown("---")
-                        if st.checkbox("🔐 숏컷 해설 (핵심 비법) 보기", key=f"short_view_{index}"):
-                            st.info(f"⚡ **숏컷:** {content_json.get('shortcut')}")
+                        st.info(f"⚡ 숏컷: {content_json.get('shortcut')}")
                         
                         if content_json.get('correction') and content_json.get('correction') != "첨삭 없음":
                             st.markdown("---")
@@ -991,7 +993,7 @@ elif menu == "📒 내 오답 노트":
                             st.divider()
                             st.markdown("**📝 쌍둥이 문제**")
                             st.markdown(content_json.get('twin_problem').replace('\n', '  \n'))
-                            if st.checkbox("🏆 정답 및 해설 확인", key=f"twin_ans_view_{index}"):
+                            if st.checkbox("정답 보기", key=f"twin_ans_{index}"):
                                 st.markdown(content_json.get('twin_answer').replace('\n', '  \n'))
 
                 if st.button("✅ 오늘 복습 완료", key=f"rev_{index}"):
