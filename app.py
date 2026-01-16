@@ -21,15 +21,14 @@ import ast
 import numpy as np
 import textwrap
 
-# 🔥 [추가 라이브러리] 판서 및 음성 기능용
+# 🔥 [변경] 마이크 제거 (오류 원천 차단)
 from streamlit_drawable_canvas import st_canvas
-from streamlit_mic_recorder import speech_to_text # 🎤 마이크 기능 복구 완료!
+# from streamlit_mic_recorder import speech_to_text  <-- 제거함
 
 # ----------------------------------------------------------
-# [1] 기본 설정 & 디자인 주입 (HTML/Tailwind)
+# [1] 기본 설정 & 디자인 주입
 # ----------------------------------------------------------
 
-# 🔥 원장님 학원 로고 URL
 LOGO_URL = "https://i.ibb.co/Hp34Pg7v/logo.png"
 
 st.set_page_config(
@@ -38,7 +37,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# 스마트폰 홈 화면 아이콘 주입
 st.markdown(f"""
     <head>
         <link rel="apple-touch-icon" href="{LOGO_URL}">
@@ -47,7 +45,6 @@ st.markdown(f"""
     </head>
 """, unsafe_allow_html=True)
 
-# Tailwind CSS & 폰트 주입
 st.markdown("""
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
@@ -100,7 +97,7 @@ except:
     st.error("설정 오류: Secrets 접근 실패")
     st.stop()
 
-# 🔥 [전략 확정] 모델 라인업
+# 🔥 [모델 라인업]
 FLASH_MODELS = [
     "gemini-2.5-flash",           
     "gemini-2.0-flash",           
@@ -113,16 +110,16 @@ PRO_MODELS = [
     "gemini-2.5-flash"            
 ]
 
-# 🔥 [핵심] 교육과정 정밀 매핑 (Grade-Lock System)
+# 🔥 [교육과정 필터] - 이 부분만 추가됨
 CURRICULUM_GUIDE = {
-    "default": "해당 학년의 교과서 개념만 사용할 것. 선행 학습 개념 사용 금지.",
-    "[22개정] 공통수학1": "✅ **[행렬(Matrix)] 사용 허용.** 케일리-해밀턴 등 심화 개념 가능.",
-    "[15개정] 수학(하)": "⛔ **[행렬] 절대 사용 금지.** (교육과정에 없음).",
-    "[22개정] 확률과 통계": "✅ **[모비율 추정]** 강조. ⛔ **[원순열] 공식 지양.** 기본 순열 원리로 설명.",
+    "default": "해당 학년 교과서 개념만 사용. 선행 금지.",
+    "[22개정] 공통수학1": "✅ **[행렬] 사용 허용.**",
+    "[15개정] 수학(하)": "⛔ **[행렬] 사용 금지.**",
+    "[22개정] 확률과 통계": "✅ **[모비율]** 강조. ⛔ **[원순열] 공식 지양.**",
     "[15개정] 확률과 통계": "✅ **[원순열]** 공식 사용 가능.",
-    "수학II": "⛔ **[이계도함수($f''$), 변곡점] 정석 풀이에서 절대 금지.** (오직 증감표로만 설명). ⛔ **[로피탈]** 정석 풀이에서 금지.",
-    "미적분": "삼각함수/지수로그함수 미분, 변곡점, 이계도함수 허용.",
-    "중": "고등학교 과정(미분, 행렬 등) 절대 사용 금지. 기하학적 성질로만 설명."
+    "수학II": "⛔ **[이계도함수, 변곡점, 로피탈] 정석 풀이에서 절대 금지.**",
+    "미적분": "삼각함수/지수로그함수 미분, 변곡점 허용.",
+    "중": "고등 과정 절대 금지."
 }
 
 def get_curriculum_prompt(subject):
@@ -426,7 +423,7 @@ def generate_content_with_fallback(prompt, image=None, mode="flash", status_cont
     
     raise last_error
 
-# 🔥 [최종 수정] "빈 화면 방지" 절대 방어 로직 (Safe Parser)
+# 🔥 [파서] 빈 화면 방지 (안전 장치)
 def parse_response_to_dict(text):
     data = {}
     clean_text = re.sub(r'[\*\#]*={3,}\s*([A-Z_]+)\s*={3,}[\*\#]*', r'===\1===', text)
@@ -446,7 +443,6 @@ def parse_response_to_dict(text):
     data['concept'] = extract_section("===CONCEPT===", ["===HINT==="], "개념 분석 중...")
     data['hint_for_image'] = extract_section("===HINT===", ["===SOLUTION==="], "힌트 없음")
     
-    # 🔥 [핵심] 솔루션 파싱 실패 시, 원본 텍스트를 다 보여줌 (Fallback)
     sol_candidate = extract_section("===SOLUTION===", ["===SHORTCUT===", "===CORRECTION==="], "")
     if not sol_candidate or len(sol_candidate) < 10:
         data['solution'] = text 
@@ -630,7 +626,7 @@ if menu == "📸 문제 풀기":
                     st.session_state['selected_subject'] = selected_subject
                     st.session_state['chat_active'] = True
                     st.session_state['chat_messages'] = [
-                        {"role": "ai", "content": "문제를 확인했습니다. 같이 차근차근 풀어봅시다. 어디서 막혔나요?"}
+                        {"role": "ai", "content": "문제를 확인했어! 🤔\n\n바로 답을 알려주기보다는 같이 풀어보면 실력이 더 늘 거야.\n\n이 문제에서 **어떤 부분이 가장 헷갈리거나 막혔니?** (말로 물어보거나, 판서 모드를 켜서 표시해줘도 돼!)"}
                     ]
                     st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
@@ -699,18 +695,12 @@ if menu == "📸 문제 풀기":
                             st.error("저장 실패")
 
             col_mic, col_text = st.columns([0.1, 0.9])
-            with col_mic:
-                # 🎤 [복구] 마이크 기능 (이제는 안전합니다)
-                voice_text = speech_to_text(language='ko', start_prompt="🎤", stop_prompt="⏹️", just_once=False, use_container_width=True)
-            
+            # 🔥 [변경] 마이크 대신 텍스트 입력만 (안전 모드)
             with col_text:
                 chat_input_text = st.chat_input("질문을 입력하세요")
             
             final_prompt = None
-            if voice_text and voice_text != st.session_state['last_voice_text']:
-                final_prompt = voice_text
-                st.session_state['last_voice_text'] = voice_text 
-            elif chat_input_text:
+            if chat_input_text:
                 final_prompt = chat_input_text
 
             if final_prompt:
@@ -774,81 +764,95 @@ if menu == "📸 문제 풀기":
             if not st.session_state['analysis_result']:
                 st.info("💡 충분히 고민하고 정리를 마쳤다면, 아래 버튼을 눌러 해설을 확인하세요.")
                 if st.button("🔐 정답 및 1타 풀이 공개 (저장)", type="primary"):
-                    status_container = st.status("🚀 AI 튜터가 문제를 분석하고 있습니다...", expanded=True)
-                    text_placeholder = st.empty() 
-                    
-                    # 🔥 [Flash 프롬프트: 교과서적 정석 풀이 강제 + 교육과정 필터 적용]
-                    curriculum_rules = get_curriculum_prompt(st.session_state['selected_subject'])
-                    
-                    final_prompt_main = f"""
-                    당신은 권위 있는 수학 교과서 및 해설지 집필 위원입니다. (과목: {st.session_state['selected_subject']})
-                    이미지를 분석하여 정석 풀이와 숏컷을 구분하여 작성하십시오.
+                    with st.spinner("1타 강사 해설 및 쌍둥이 문제를 생성하고 저장 중입니다..."):
+                        
+                        # 🔥 [교육과정 필터 + 좋았던 프롬프트 로직 결합]
+                        curriculum_rules = get_curriculum_prompt(st.session_state['selected_subject'])
+                        
+                        final_prompt_main = f"""
+                        당신은 대한민국 최고의 수능 수학 '1타 강사'입니다. (과목:{st.session_state['selected_subject']})
+                        이미지를 분석하여 다음 항목을 명확히 구분하여 출력하세요.
 
-                    **[교육과정 준수 지침 (Grade-Lock)]**
-                    {curriculum_rules}
+                        **[학생의 Self-Note]**
+                        {st.session_state['self_note']}
+                        (이 내용도 참고하여 첨삭을 넣어주세요.)
 
-                    **[작성 스타일 지침]**
-                    1. **건조한 문어체 사용:** '~요' 체를 금지하고, '~다', '~임', '~함'으로 끝내십시오. 감탄사나 불필요한 서론을 제거하십시오.
-                    2. **구조화된 리스트:** 풀이 과정이 길어지면 번호(1., 2.)를 매겨 단계별로 구분하십시오.
-                    3. **학생 노트 참고:** {st.session_state['self_note']}
+                        **[1. 교육과정 준수 및 풀이 스타일 (Grade-Lock)]**
+                        {curriculum_rules}
+                        - **말투:** 설명조(~요) 금지. '~다', '~임' 등으로 간결하게 끝낼 것.
+                        - **길이:** 서론, 잡담 삭제. 바로 수식 계산으로 진입할 것.
 
-                    **[출력 형식]**
-                    ===CONCEPT===
-                    (핵심 개념 한 줄)
-                    ===HINT===
-                    (단원명 / 힌트 1줄)
-                    ===SOLUTION===
-                    (### 📖 [1] 정석 풀이
-                    **[지침 준수]**: 위 교육과정 규칙을 철저히 지키며, 교과서적인 서술형 풀이를 작성. 번호 매기기 필수. 선행 개념 절대 금지.)
-                    ===SHORTCUT===
-                    (### 🍯 [2] 숏컷 풀이
-                    실전 문제 풀이용 스킬. 여기서는 선행 개념(로피탈, 비율관계 등) 사용 가능. 자유롭게 기술.)
-                    ===CORRECTION===
-                    (학생의 오개념 교정. [총평], [틀린 부분], [교정] 순서.)
-                    ===TWIN_PROBLEM===
-                    (유사 문제 1개)
-                    ===TWIN_ANSWER===
-                    (정답 및 간단 해설)
-                    """
-                    try:
-                        res_text, _ = generate_content_with_fallback(final_prompt_main, st.session_state['gemini_image'], mode="flash", status_container=status_container, text_placeholder=text_placeholder)
-                        
-                        text_placeholder.empty() 
-                        status_container.update(label="✅ 분석 및 창작 완료!", state="complete", expanded=False)
-                        
-                        data = parse_response_to_dict(res_text)
-                        data['my_self_note'] = st.session_state['self_note']
-                        
-                        st.session_state['analysis_result'] = data
-                        
-                        st.session_state['solution_image'] = create_solution_image(
-                            st.session_state['gemini_image'], data.get('hint_for_image', '힌트 없음')
-                        )
-                        img_byte_arr = io.BytesIO()
-                        st.session_state['solution_image'].save(img_byte_arr, format='JPEG', quality=90)
-                        link = upload_to_imgbb(img_byte_arr.getvalue()) or "이미지_없음"
-                        
-                        saved_ts = save_result_to_sheet(
-                            st.session_state['user_name'], 
-                            st.session_state['selected_subject'], 
-                            data.get('concept'), 
-                            data, 
-                            link,
-                            st.session_state['chat_messages']
-                        )
-                        st.session_state['saved_timestamp'] = saved_ts
-                        st.session_state['last_saved_chat_len'] = len(st.session_state['chat_messages'])
-                        
-                        st.rerun()
-                    except Exception as e:
-                        status_container.update(label="⚠️ 오류 발생", state="error")
-                        st.error(f"분석 오류: {e}")
+                        **[2. 핵심 지침: 1타 강사의 '실전 스킬' 전방위 적용]**
+                        문제의 단원을 먼저 파악하고, 해당 단원에서 고수들이 사용하는 '기하학적 해석', '비율 관계', '공식'이 있는지 최우선으로 검토하세요.
+                        아래 리스트는 **반드시 체크해야 할 대표적인 예시**이며, 리스트에 없더라도 해당 단원의 숏컷이 있다면 적극적으로 사용하세요.
+
+                        **[필수 체크 리스트 (예시)]**
+                        1. **[다항함수]** 3차/4차함수 비율 관계(2:1, 3:1), 넓이 공식(1/6, 1/12), 높이차 공식, 변곡점 대칭성.
+                        2. **[수열]** 등차수열 합의 기하학적 해석(상수항 없는 2차함수), 등차중항(평균), 등비수열 덩어리 합.
+                        3. **[미분/적분]** 이차함수 두 점 사이 기울기(=중점의 미분계수), 0 근처 근사(sin x ≈ x, tan x ≈ x).
+                        4. **[삼각/기하]** 사인법칙(지름의 지배), 코사인법칙(피타고라스 보정), 단위원 해석, 중선 정리.
+                        5. **[확통/경우의 수]** 같은 것이 있는 순열(묶어서 처리 vs 자리 뽑기), 여사건의 빠른 판단, 독립시행의 확률 분포 직관.
+
+                        **[필수 지침]**
+                        1. **절대 JSON 포맷을 사용하지 마세요.**
+                        2. 아래의 구분자(===...===)를 사용하여 내용을 명확히 나누세요.
+                        3. **모든 수식은 LaTeX($$)를 사용하세요.** (예: $x^2$)
+                        4. 숏컷(Shortcut)을 최우선으로 적용하세요.
+
+                        **[출력 형식]**
+                        ===CONCEPT===
+                        (핵심 개념 한 줄)
+                        ===HINT===
+                        (단원명 / 적용된 숏컷 이름 / 핵심 힌트 1줄)
+                        ===SOLUTION===
+                        (### 📖 [1] 정석 풀이 (Standard)
+                        **[주의]**: 위 교육과정 규칙을 철저히 지키며, 교과서적인 서술형 풀이를 작성. 번호 매기기 필수. **선행 개념 절대 금지.**)
+                        ===SHORTCUT===
+                        (### 🍯 [2] 숏컷 풀이 (Genius Shortcut)
+                        1타 강사의 시선으로 문제를 꿰뚫어 보는 직관적 풀이. **여기서는 선행 개념(로피탈, 비율관계 등) 사용 가능.**)
+                        ===CORRECTION===
+                        (학생의 풀이 또는 Self-Note에 대한 피드백/첨삭.
+                        [총평], [틀린 곳], [올바른 방향] 형식으로 작성)
+                        ===TWIN_PROBLEM===
+                        (본 문제와 동일한 원리나 숏컷을 연습할 수 있는 유사(쌍둥이) 문제 1개. LaTeX 사용)
+                        ===TWIN_ANSWER===
+                        (쌍둥이 문제 정답 및 간단 해설. LaTeX 사용)
+                        """
+                        try:
+                            # 🔥 통합 생성은 Flash 모델 사용 (속도)
+                            res_text, _ = generate_content_with_fallback(final_prompt_main, st.session_state['gemini_image'], mode="flash")
+                            
+                            data = parse_response_to_dict(res_text)
+                            data['my_self_note'] = st.session_state['self_note']
+                            
+                            st.session_state['analysis_result'] = data
+                            
+                            # 이미지 생성 및 저장
+                            st.session_state['solution_image'] = create_solution_image(
+                                st.session_state['gemini_image'], data.get('hint_for_image', '힌트 없음')
+                            )
+                            img_byte_arr = io.BytesIO()
+                            st.session_state['solution_image'].save(img_byte_arr, format='JPEG', quality=90)
+                            link = upload_to_imgbb(img_byte_arr.getvalue()) or "이미지_없음"
+                            
+                            saved_ts = save_result_to_sheet(
+                                st.session_state['user_name'], 
+                                st.session_state['selected_subject'], 
+                                data.get('concept'), 
+                                data, 
+                                link,
+                                st.session_state['chat_messages']
+                            )
+                            st.session_state['saved_timestamp'] = saved_ts
+                            st.session_state['last_saved_chat_len'] = len(st.session_state['chat_messages'])
+                            
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"분석 오류: {e}")
 
             if st.session_state['analysis_result']:
                 res = st.session_state['analysis_result']
                 st.success("🎉 분석 완료! 오답노트에 저장되었습니다.")
-                
-                # 🔥 [UI 디자인 원복] expander 하나에 다 넣기
                 with st.expander("📘 1타 강사의 상세 풀이 & 숏컷", expanded=True):
                     st.markdown(f"**핵심 개념:** {res.get('concept')}")
                     st.markdown("---")
@@ -860,6 +864,7 @@ if menu == "📸 문제 풀기":
                         st.markdown("---")
                         st.markdown(f"**📝 첨삭 지도:**\n{res.get('correction').replace(chr(10), '  '+chr(10))}")
 
+                # 🔥 쌍둥이 문제 표시
                 with st.expander("📝 쌍둥이 문제 확인", expanded=True):
                     st.write(res.get('twin_problem'))
                     if st.button("정답 보기"):
@@ -868,66 +873,64 @@ if menu == "📸 문제 풀기":
                 if st.session_state['solution_image']:
                     st.image(st.session_state['solution_image'], caption="오답노트 이미지", use_column_width=True)
 
+                # 🔥 [유지] 고난도 심화 분석 버튼 (Pro 모델 호출)
                 st.markdown("---")
                 if st.button("🚨 고난도 심화 분석 요청 (Pro 모델)", type="secondary"):
-                    status_container_pro = st.status("🧠 Pro 모델이 깊게 생각하는 중입니다... (약 15초)", expanded=True)
-                    text_placeholder_pro = st.empty() 
-                    
-                    # 🔥 [Pro 프롬프트 유지] 
-                    final_prompt_pro = f"""
-                    당신은 대한민국 최고의 수능 수학 '1타 강사'입니다.
-                    학생이 '고난도 심화 분석'을 요청했습니다. 
-                    단순한 계산 나열이 아니라, **문제의 본질을 꿰뚫는 통찰(Insight)**을 보여주세요.
+                    with st.spinner("Pro 모델이 문제를 깊게 분석하고 재작성 중입니다... (약 15초 소요)"):
+                         # 프롬프트 재사용 (Pro에게 전달) + 체크리스트 포함!
+                        final_prompt_pro = f"""
+                        당신은 대한민국 최고의 수능 수학 '1타 강사'입니다.
+                        학생이 '고난도 심화 분석'을 요청했습니다. 
+                        앞선 분석보다 훨씬 더 깊이 있고 논리적인 정석 풀이와, 킬러 문항도 뚫어버리는 강력한 숏컷을 다시 작성하세요.
+                        (기존 분석 내용을 완전히 덮어씌웁니다.)
 
-                    **[Deep Thinking Protocol: 심층 사고 단계]**
-                    1. **[Geometry First]**: 문제를 보자마자 수식(Algebra)으로 덤비지 마세요. 
-                       - **초등학교/중학교 도형(기하)의 성질** (닮음비, 합동, 원주각, 대칭성, 특수각 삼각형)로 풀 수 있는지 최우선으로 스캔하세요.
-                       - "이 문제는 겉보기엔 미적분이지만, 실은 중2 닮음 문제입니다"와 같은 통찰을 보여주세요.
-                    2. **[Dark Skills]**: 최상위권들만 아는 **'실전 스킬(Dark Skills)'**을 적극적으로 적용하세요.
-                       - 예: 3/4차함수 비율 관계, 로피탈, 테일러 급수 근사(sin x ≈ x), 신발끈 공식, N축 스킬, 파푸스-굴딘 등.
-                    3. **[Integrated Thinking]**: 초1부터 고3까지의 모든 교육과정을 연결하여 가장 빠르고 직관적인 길을 제시하세요.
+                        **[필수 체크 리스트 (예시)]**
+                        1. **[다항함수]** 3차/4차함수 비율 관계(2:1, 3:1), 넓이 공식(1/6, 1/12), 높이차 공식, 변곡점 대칭성.
+                        2. **[수열]** 등차수열 합의 기하학적 해석(상수항 없는 2차함수), 등차중항(평균), 등비수열 덩어리 합.
+                        3. **[미분/적분]** 이차함수 두 점 사이 기울기(=중점의 미분계수), 0 근처 근사(sin x ≈ x, tan x ≈ x).
+                        4. **[삼각/기하]** 사인법칙(지름의 지배), 코사인법칙(피타고라스 보정), 단위원 해석, 중선 정리.
+                        5. **[확통/경우의 수]** 같은 것이 있는 순열(묶어서 처리 vs 자리 뽑기), 여사건의 빠른 판단, 독립시행의 확률 분포 직관.
 
-                    **[핵심 지침]**
-                    1. **절대 JSON 포맷을 사용하지 마세요.**
-                    2. 아래의 구분자(===...===)를 사용하여 내용을 명확히 나누세요.
-                    3. **모든 수식은 LaTeX($$)를 사용하세요.**
+                        **[핵심 지침]**
+                        1. **절대 JSON 포맷을 사용하지 마세요.**
+                        2. 아래의 구분자(===...===)를 사용하여 내용을 명확히 나누세요.
+                        3. **모든 수식은 LaTeX($$)를 사용하세요.**
 
-                    **[출력 형식]**
-                    ===CONCEPT===
-                    (심화 개념 및 출제 의도)
-                    ===HINT===
-                    (결정적 힌트: 도형의 보조선이나 특수 스킬 언급)
-                    ===SOLUTION===
-                    (논리적이고 치밀한 정석 풀이)
-                    ===SHORTCUT===
-                    (고난도 문제용 실전 숏컷: 암흑 스킬 및 기하학적 해석 포함)
-                    ===CORRECTION===
-                    (학생의 사고 과정에 대한 깊이 있는 피드백 및 함정 경고)
-                    """
-                    try:
-                        res_text_pro, _ = generate_content_with_fallback(final_prompt_pro, st.session_state['gemini_image'], mode="pro", status_container=status_container_pro, text_placeholder=text_placeholder_pro)
-                        
-                        text_placeholder_pro.empty()
-                        status_container_pro.update(label="✅ Pro 분석 완료!", state="complete", expanded=False)
-                        
-                        data_pro = parse_response_to_dict(res_text_pro)
-                        data_pro['my_self_note'] = st.session_state['self_note']
-                        
-                        data_pro['twin_problem'] = st.session_state['analysis_result'].get('twin_problem')
-                        data_pro['twin_answer'] = st.session_state['analysis_result'].get('twin_answer')
+                        **[출력 형식]**
+                        ===CONCEPT===
+                        (심화 개념)
+                        ===HINT===
+                        (결정적 힌트)
+                        ===SOLUTION===
+                        (논리적이고 치밀한 정석 풀이)
+                        ===SHORTCUT===
+                        (고난도 문제용 실전 숏컷)
+                        ===CORRECTION===
+                        (학생의 사고 과정에 대한 깊이 있는 피드백)
+                        """
+                        try:
+                            # 🔥 Pro 모델 호출
+                            res_text_pro, _ = generate_content_with_fallback(final_prompt_pro, st.session_state['gemini_image'], mode="pro")
+                            data_pro = parse_response_to_dict(res_text_pro)
+                            data_pro['my_self_note'] = st.session_state['self_note']
+                            
+                            # 기존 쌍둥이 문제 유지
+                            data_pro['twin_problem'] = st.session_state['analysis_result'].get('twin_problem')
+                            data_pro['twin_answer'] = st.session_state['analysis_result'].get('twin_answer')
 
-                        st.session_state['analysis_result'] = data_pro
-                        
-                        if st.session_state['saved_timestamp']:
-                            overwrite_result_in_sheet(
-                                st.session_state['user_name'], 
-                                st.session_state['saved_timestamp'], 
-                                data_pro
-                            )
-                        st.toast("Pro 분석으로 업데이트되었습니다!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Pro 분석 오류: {e}")
+                            st.session_state['analysis_result'] = data_pro
+                            
+                            # 시트 덮어쓰기
+                            if st.session_state['saved_timestamp']:
+                                overwrite_result_in_sheet(
+                                    st.session_state['user_name'], 
+                                    st.session_state['saved_timestamp'], 
+                                    data_pro
+                                )
+                            st.toast("Pro 분석으로 업데이트되었습니다!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Pro 분석 오류: {e}")
 
 elif menu == "📒 내 오답 노트":
     st.markdown("""
@@ -936,6 +939,7 @@ elif menu == "📒 내 오답 노트":
     </div>
     """, unsafe_allow_html=True)
     
+    # 중복 제거 기능 적용
     df = load_user_results(st.session_state['user_name'])
     
     if not df.empty:
