@@ -215,7 +215,7 @@ def overwrite_result_in_sheet(student_name, target_time, new_summary):
         if row_idx != -1:
             try:
                 data = ast.literal_eval(current_content_str)
-                data.update(new_summary) # Pro 분석 결과(새로운 키)를 기존 데이터에 병합
+                data.update(new_summary) # 병합 (Append)
                 updated_content = str(data)
                 sheet.update_cell(row_idx, 5, updated_content)
                 return True
@@ -446,6 +446,7 @@ def parse_response_to_dict(text):
     data['concept'] = extract_section("===CONCEPT===", ["===HINT==="], "개념 분석 중...")
     data['hint_for_image'] = extract_section("===HINT===", ["===SOLUTION==="], "힌트 없음")
     
+    # 🔥 [핵심] 솔루션 파싱 실패 시, 원본 텍스트를 다 보여줌 (Fallback)
     sol_candidate = extract_section("===SOLUTION===", ["===SHORTCUT===", "===CORRECTION==="], "")
     if not sol_candidate or len(sol_candidate) < 10:
         data['solution'] = text 
@@ -699,7 +700,7 @@ if menu == "📸 문제 풀기":
 
             col_mic, col_text = st.columns([0.1, 0.9])
             with col_mic:
-                # 🎤 [복구] 마이크 버튼
+                # 🎤 [복구] 마이크 기능 (이제는 안전합니다)
                 voice_text = speech_to_text(language='ko', start_prompt="🎤", stop_prompt="⏹️", just_once=False, use_container_width=True)
             
             with col_text:
@@ -776,17 +777,18 @@ if menu == "📸 문제 풀기":
                     status_container = st.status("🚀 AI 튜터가 문제를 분석하고 있습니다...", expanded=True)
                     text_placeholder = st.empty() 
                     
-                    # 🔥 [Flash 프롬프트]
+                    # 🔥 [Flash 프롬프트: EBS 해설지 모드]
                     curriculum_rules = get_curriculum_prompt(st.session_state['selected_subject'])
                     
                     final_prompt_main = f"""
-                    당신은 대한민국 최고의 수학 교과서 집필 위원입니다. (과목: {st.session_state['selected_subject']})
+                    당신은 'EBS 수능특강 해설지 작성 로봇'입니다. (과목: {st.session_state['selected_subject']})
                     이미지를 분석하여 다음 항목을 작성하십시오.
 
                     **[1. 교육과정 준수 및 스타일 (Grade-Lock)]**
                     {curriculum_rules}
-                    - **말투:** '~요' 금지. **'~다', '~임', '~함'** 등 명사형/평서형으로 간결하게 작성.
-                    - **길이:** 잡담 삭제. 수식 위주로 전개.
+                    - **[치명적 제약]:** '문제를 보면', '따라서', '이므로' 같은 **접속사와 한글 서술을 90% 삭제**하십시오.
+                    - **[수식 연결]:** 문장 대신 화살표($\rightarrow$, $\Rightarrow$)나 등호($=$)로 과정을 연결하십시오.
+                    - **[평가 금지]:** "이 문제는 모순이다", "오류다" 같은 멘트 절대 금지. (주어진 조건 내에서 최적의 답을 도출할 것)
 
                     **[2. 숏컷 필수 체크리스트 (Priority Check)]**
                     다음 리스트 중 적용 가능한 것이 있다면 **오직 [2] 숏컷 풀이**에만 반영하십시오.
@@ -875,7 +877,6 @@ if menu == "📸 문제 풀기":
                 st.markdown("---")
                 
                 # 🔥 [Pro 분석 표시 구역]
-                # 이미 Pro 분석을 했다면(pro_solution 키가 있다면) 보여줌
                 if 'pro_solution' in res:
                     st.markdown("### 🧠 Pro 심화 분석 (수능 해커)")
                     with st.expander("🦅 심화 풀이 & 기하학적 통찰", expanded=True):
@@ -933,7 +934,6 @@ if menu == "📸 문제 풀기":
                             data_pro = parse_response_to_dict(res_text_pro)
                             
                             # 기존 데이터에 Pro 데이터 병합 (Append 방식)
-                            # 키 이름을 'pro_'로 바꿔서 저장
                             new_data = {
                                 'pro_concept': data_pro.get('concept'),
                                 'pro_solution': data_pro.get('solution'),
