@@ -21,9 +21,9 @@ import ast
 import numpy as np
 import textwrap
 
-# 🔥 [변경] 마이크 제거 (오류 원천 차단)
+# 🔥 [복구] 마이크 기능 라이브러리 활성화
 from streamlit_drawable_canvas import st_canvas
-# from streamlit_mic_recorder import speech_to_text  <-- 제거함
+from streamlit_mic_recorder import speech_to_text
 
 # ----------------------------------------------------------
 # [1] 기본 설정 & 디자인 주입 (HTML/Tailwind)
@@ -100,7 +100,7 @@ except:
     st.error("설정 오류: Secrets 접근 실패")
     st.stop()
 
-# 🔥 [전략 확정] 모델 라인업 (안정성 + 지능)
+# 🔥 [전략 확정] 모델 라인업
 FLASH_MODELS = [
     "gemini-2.5-flash",           
     "gemini-2.0-flash",           
@@ -215,7 +215,7 @@ def overwrite_result_in_sheet(student_name, target_time, new_summary):
         if row_idx != -1:
             try:
                 data = ast.literal_eval(current_content_str)
-                data.update(new_summary)
+                data.update(new_summary) # Pro 분석 결과(새로운 키)를 기존 데이터에 병합
                 updated_content = str(data)
                 sheet.update_cell(row_idx, 5, updated_content)
                 return True
@@ -426,7 +426,7 @@ def generate_content_with_fallback(prompt, image=None, mode="flash", status_cont
     
     raise last_error
 
-# 🔥 [파서] 빈 화면 방지
+# 🔥 [파서] 빈 화면 방지 (안전 장치)
 def parse_response_to_dict(text):
     data = {}
     clean_text = re.sub(r'[\*\#]*={3,}\s*([A-Z_]+)\s*={3,}[\*\#]*', r'===\1===', text)
@@ -446,7 +446,6 @@ def parse_response_to_dict(text):
     data['concept'] = extract_section("===CONCEPT===", ["===HINT==="], "개념 분석 중...")
     data['hint_for_image'] = extract_section("===HINT===", ["===SOLUTION==="], "힌트 없음")
     
-    # 🔥 [핵심] 솔루션 파싱 실패 시, 원본 텍스트를 다 보여줌 (Fallback)
     sol_candidate = extract_section("===SOLUTION===", ["===SHORTCUT===", "===CORRECTION==="], "")
     if not sol_candidate or len(sol_candidate) < 10:
         data['solution'] = text 
@@ -699,12 +698,18 @@ if menu == "📸 문제 풀기":
                             st.error("저장 실패")
 
             col_mic, col_text = st.columns([0.1, 0.9])
-            # 🔥 [변경] 마이크 대신 텍스트 입력만 (안전 모드)
+            with col_mic:
+                # 🎤 [복구] 마이크 버튼
+                voice_text = speech_to_text(language='ko', start_prompt="🎤", stop_prompt="⏹️", just_once=False, use_container_width=True)
+            
             with col_text:
                 chat_input_text = st.chat_input("질문을 입력하세요")
             
             final_prompt = None
-            if chat_input_text:
+            if voice_text and voice_text != st.session_state['last_voice_text']:
+                final_prompt = voice_text
+                st.session_state['last_voice_text'] = voice_text 
+            elif chat_input_text:
                 final_prompt = chat_input_text
 
             if final_prompt:
@@ -771,7 +776,7 @@ if menu == "📸 문제 풀기":
                     status_container = st.status("🚀 AI 튜터가 문제를 분석하고 있습니다...", expanded=True)
                     text_placeholder = st.empty() 
                     
-                    # 🔥 [Flash 프롬프트: 교과서적 정석 풀이 강제 + 교육과정 필터 적용]
+                    # 🔥 [Flash 프롬프트]
                     curriculum_rules = get_curriculum_prompt(st.session_state['selected_subject'])
                     
                     final_prompt_main = f"""
@@ -868,65 +873,87 @@ if menu == "📸 문제 풀기":
                     st.image(st.session_state['solution_image'], caption="오답노트 이미지", use_column_width=True)
 
                 st.markdown("---")
-                if st.button("🚨 고난도 심화 분석 요청 (Pro 모델)", type="secondary"):
-                    status_container_pro = st.status("🧠 Pro 모델이 깊게 생각하는 중입니다... (약 15초)", expanded=True)
-                    text_placeholder_pro = st.empty() 
-                    
-                    # 🔥 [Pro 프롬프트: 통합적 사고 + 심화]
-                    final_prompt_pro = f"""
-                    당신은 대한민국 수학계의 정점, '수능 해커'입니다.
-                    학생이 **[고난도 심화 분석]**을 요청했습니다. 
-                    단순한 공식 암기나 계산 노동을 넘어, **문제의 구조를 꿰뚫는 가장 짧은 길**을 제시하십시오.
-
-                    **[Deep Insight Protocol: 압도적 단축]**
-                    1. **Regression to Basics (중학 기하의 힘):** - 고등 미적분 문제라도 **중학교 도형의 성질(닮음, 합동, 원주각, 대칭성)**로 풀면 계산이 0이 되는 경우가 많습니다. 이를 최우선으로 탐색하십시오.
-                    2. **Simplicity over Skill (스킬 그 이상):**
-                       - 앞서 언급된 '비율 관계'나 '로피탈' 같은 스킬보다, **그래프를 잘라 붙이거나 평행이동**하여 눈으로 푸는 방법이 있다면 그것을 제시하십시오.
-                    3. **Cost-Benefit Analysis (가성비 판독):** - 당신이 찾은 방법이 기존 [숏컷 풀이]보다 **확실히 더 짧고 충격적일 때만** 작성하십시오.
-                       - 별다른 묘수가 없다면 솔직하게 **"이 문제는 정석/기존 숏컷이 최적입니다."**라고 출력하십시오.
-
-                    **[작성 지침]**
-                    - 설명하려 하지 말고, **보여주십시오.** (Show, Don't Tell)
-                    - 문어체 필수. 수식은 LaTeX($$) 사용.
-
-                    **[출력 형식]**
-                    ===CONCEPT===
-                    (문제를 관통하는 단 하나의 원리)
-                    ===HINT===
-                    (기존 해설과는 다른, 도형이나 대칭성을 이용한 새로운 시각)
-                    ===SOLUTION===
-                    (논리적 정석 풀이 - Flash 모델과 동일해도 됨)
-                    ===SHORTCUT===
-                    (### ⚡ [2] Pro Insight (Ultra-Short)
-                    **[조건]**: 일반적인 공식 적용보다 더 빠르고 기발한 풀이.
-                    - 예: "복잡한 적분 계산 대신, 그래프 대칭성을 이용해 직사각형 넓이로 치환한다.")
-                    ===CORRECTION===
-                    (학생의 사고 과정 "{st.session_state['self_note']}"의 맹점 지적)
-                    """
-                    try:
-                        res_text_pro, _ = generate_content_with_fallback(final_prompt_pro, st.session_state['gemini_image'], mode="pro", status_container=status_container_pro, text_placeholder=text_placeholder_pro)
+                
+                # 🔥 [Pro 분석 표시 구역]
+                # 이미 Pro 분석을 했다면(pro_solution 키가 있다면) 보여줌
+                if 'pro_solution' in res:
+                    st.markdown("### 🧠 Pro 심화 분석 (수능 해커)")
+                    with st.expander("🦅 심화 풀이 & 기하학적 통찰", expanded=True):
+                        st.markdown(f"**심화 개념:** {res.get('pro_concept')}")
+                        st.markdown("---")
+                        st.markdown(res.get('pro_solution').replace('\n', '  \n'))
+                        st.info(f"⚡ **Pro 숏컷:** {res.get('pro_shortcut')}")
+                        if res.get('pro_correction'):
+                            st.markdown("---")
+                            st.markdown(f"**📝 심층 피드백:**\n{res.get('pro_correction')}")
+                
+                # Pro 분석 요청 버튼 (아직 안 했으면 표시)
+                else:
+                    if st.button("🚨 고난도 심화 분석 요청 (Pro 모델)", type="secondary"):
+                        status_container_pro = st.status("🧠 Pro 모델이 깊게 생각하는 중입니다... (약 15초)", expanded=True)
+                        text_placeholder_pro = st.empty() 
                         
-                        text_placeholder_pro.empty()
-                        status_container_pro.update(label="✅ Pro 분석 완료!", state="complete", expanded=False)
-                        
-                        data_pro = parse_response_to_dict(res_text_pro)
-                        data_pro['my_self_note'] = st.session_state['self_note']
-                        
-                        data_pro['twin_problem'] = st.session_state['analysis_result'].get('twin_problem')
-                        data_pro['twin_answer'] = st.session_state['analysis_result'].get('twin_answer')
+                        # 🔥 [Pro 프롬프트] 
+                        final_prompt_pro = f"""
+                        당신은 대한민국 수학계의 정점, '수능 해커'입니다.
+                        학생이 **[고난도 심화 분석]**을 요청했습니다. 
+                        단순한 공식 암기나 계산 노동을 넘어, **문제의 구조를 꿰뚫는 가장 짧은 길**을 제시하십시오.
 
-                        st.session_state['analysis_result'] = data_pro
-                        
-                        if st.session_state['saved_timestamp']:
-                            overwrite_result_in_sheet(
-                                st.session_state['user_name'], 
-                                st.session_state['saved_timestamp'], 
-                                data_pro
-                            )
-                        st.toast("Pro 분석으로 업데이트되었습니다!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Pro 분석 오류: {e}")
+                        **[Deep Insight Protocol: 압도적 단축]**
+                        1. **Regression to Basics (중학 기하의 힘):** - 고등 미적분 문제라도 **중학교 도형의 성질(닮음, 합동, 원주각, 대칭성)**로 풀면 계산이 0이 되는 경우가 많습니다. 이를 최우선으로 탐색하십시오.
+                        2. **Simplicity over Skill (스킬 그 이상):**
+                           - 앞서 언급된 '비율 관계'나 '로피탈' 같은 스킬보다, **그래프를 잘라 붙이거나 평행이동**하여 눈으로 푸는 방법이 있다면 그것을 제시하십시오.
+                        3. **Cost-Benefit Analysis (가성비 판독):** - 당신이 찾은 방법이 기존 [숏컷 풀이]보다 **확실히 더 짧고 충격적일 때만** 작성하십시오.
+                           - 별다른 묘수가 없다면 솔직하게 **"이 문제는 정석/기존 숏컷이 최적입니다."**라고 출력하십시오.
+
+                        **[작성 지침]**
+                        - 설명하려 하지 말고, **보여주십시오.** (Show, Don't Tell)
+                        - 문어체 필수. 수식은 LaTeX($$) 사용.
+
+                        **[출력 형식]**
+                        ===CONCEPT===
+                        (문제를 관통하는 단 하나의 원리)
+                        ===HINT===
+                        (기존 해설과는 다른, 도형이나 대칭성을 이용한 새로운 시각)
+                        ===SOLUTION===
+                        (논리적 정석 풀이 - Flash 모델과 동일해도 됨)
+                        ===SHORTCUT===
+                        (### ⚡ [2] Pro Insight (Ultra-Short)
+                        **[조건]**: 일반적인 공식 적용보다 더 빠르고 기발한 풀이.
+                        - 예: "복잡한 적분 계산 대신, 그래프 대칭성을 이용해 직사각형 넓이로 치환한다.")
+                        ===CORRECTION===
+                        (학생의 사고 과정 "{st.session_state['self_note']}"의 맹점 지적)
+                        """
+                        try:
+                            res_text_pro, _ = generate_content_with_fallback(final_prompt_pro, st.session_state['gemini_image'], mode="pro", status_container=status_container_pro, text_placeholder=text_placeholder_pro)
+                            
+                            text_placeholder_pro.empty()
+                            status_container_pro.update(label="✅ Pro 분석 완료!", state="complete", expanded=False)
+                            
+                            data_pro = parse_response_to_dict(res_text_pro)
+                            
+                            # 기존 데이터에 Pro 데이터 병합 (Append 방식)
+                            # 키 이름을 'pro_'로 바꿔서 저장
+                            new_data = {
+                                'pro_concept': data_pro.get('concept'),
+                                'pro_solution': data_pro.get('solution'),
+                                'pro_shortcut': data_pro.get('shortcut'),
+                                'pro_correction': data_pro.get('correction')
+                            }
+                            
+                            # 세션 상태 업데이트
+                            st.session_state['analysis_result'].update(new_data)
+                            
+                            if st.session_state['saved_timestamp']:
+                                overwrite_result_in_sheet(
+                                    st.session_state['user_name'], 
+                                    st.session_state['saved_timestamp'], 
+                                    new_data
+                                )
+                            st.toast("Pro 분석으로 업데이트되었습니다!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Pro 분석 오류: {e}")
 
 elif menu == "📒 내 오답 노트":
     st.markdown("""
@@ -975,14 +1002,19 @@ elif menu == "📒 내 오답 노트":
                         st.markdown("**📝 풀이:**")
                         sol_clean = content_json.get('solution', '').replace('\n', '  \n')
                         st.markdown(sol_clean)
-                        
-                        st.markdown("---")
-                        if st.checkbox("🔐 숏컷 해설 (핵심 비법) 보기", key=f"short_view_{index}"):
-                            st.info(f"⚡ **숏컷:** {content_json.get('shortcut')}")
+                        st.info(f"⚡ **숏컷:** {content_json.get('shortcut')}")
                         
                         if content_json.get('correction') and content_json.get('correction') != "첨삭 없음":
                             st.markdown("---")
                             st.markdown(f"**📝 첨삭 지도:**\n{content_json.get('correction').replace(chr(10), '  '+chr(10))}")
+
+                        # Pro 분석 결과가 있다면 오답노트에도 표시
+                        if 'pro_solution' in content_json:
+                            st.markdown("---")
+                            st.markdown("### 🧠 Pro 심화 분석")
+                            st.markdown(f"**심화 개념:** {content_json.get('pro_concept')}")
+                            st.markdown(content_json.get('pro_solution').replace('\n', '  \n'))
+                            st.info(f"⚡ **Pro 숏컷:** {content_json.get('pro_shortcut')}")
 
                         if 'chat_history' in content_json and content_json['chat_history']:
                             st.markdown("---")
@@ -995,7 +1027,7 @@ elif menu == "📒 내 오답 노트":
                             st.divider()
                             st.markdown("**📝 쌍둥이 문제**")
                             st.markdown(content_json.get('twin_problem').replace('\n', '  \n'))
-                            if st.checkbox("🏆 정답 및 해설 확인", key=f"twin_ans_view_{index}"):
+                            if st.checkbox("정답 보기", key=f"twin_ans_{index}"):
                                 st.markdown(content_json.get('twin_answer').replace('\n', '  \n'))
 
                 if st.button("✅ 오늘 복습 완료", key=f"rev_{index}"):
