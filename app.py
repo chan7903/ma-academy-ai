@@ -426,7 +426,7 @@ def generate_content_with_fallback(prompt, image=None, mode="flash", status_cont
     
     raise last_error
 
-# 🔥 [파서] 빈 화면 방지 (안전 장치)
+# 🔥 [최종 수정] "빈 화면 방지" 절대 방어 로직 (Safe Parser)
 def parse_response_to_dict(text):
     data = {}
     clean_text = re.sub(r'[\*\#]*={3,}\s*([A-Z_]+)\s*={3,}[\*\#]*', r'===\1===', text)
@@ -777,7 +777,6 @@ if menu == "📸 문제 풀기":
             if not st.session_state['analysis_result']:
                 st.info("💡 충분히 고민하고 정리를 마쳤다면, 아래 버튼을 눌러 해설을 확인하세요.")
                 if st.button("🔐 정답 및 풀이 공개 (저장)", type="primary"):
-                    # 🔥 [오류 수정] status_container를 여기서 정의해야 except에서 사용 가능
                     status_container = st.status("🚀 AI 튜터가 문제를 분석하고 있습니다...", expanded=True)
                     text_placeholder = st.empty() 
                     
@@ -900,67 +899,70 @@ if menu == "📸 문제 풀기":
                 # Pro 분석 요청 버튼 (아직 안 했으면 표시)
                 else:
                     if st.button("🚨 고난도 심화 분석 요청 (Pro 모델)", type="secondary"):
-                        # 🔥 [안전장치 2] Pro 버튼에도 self_note 이스케이프 적용
-                        safe_self_note_pro = st.session_state['self_note'].replace("{", "{{").replace("}", "}}")
+                        status_container_pro = st.status("🧠 Pro 모델이 깊게 생각하는 중입니다... (약 15초)", expanded=True)
+                        text_placeholder_pro = st.empty() 
                         
-                        with st.spinner("Pro 모델이 문제를 깊게 분석하고 재작성 중입니다... (약 15초 소요)"):
-                            # 🔥 [Pro 프롬프트] 
-                            final_prompt_pro = f"""
-                            당신은 대한민국 수학계의 정점, '수능 해커'입니다.
-                            학생이 **[고난도 심화 분석]**을 요청했습니다. 
-                            단순한 공식 암기나 계산 노동을 넘어, **문제의 구조를 꿰뚫는 가장 짧은 길**을 제시하십시오.
+                        # 🔥 [Pro 프롬프트] 
+                        final_prompt_pro = f"""
+                        당신은 대한민국 수학계의 정점, '수능 해커'입니다.
+                        학생이 **[고난도 심화 분석]**을 요청했습니다. 
+                        단순한 공식 암기나 계산 노동을 넘어, **문제의 구조를 꿰뚫는 가장 짧은 길**을 제시하십시오.
 
-                            **[Deep Insight Protocol: 압도적 단축]**
-                            1. **Regression to Basics (중학 기하의 힘):** - 고등 미적분 문제라도 **중학교 도형의 성질(닮음, 합동, 원주각, 대칭성)**로 풀면 계산이 0이 되는 경우가 많습니다. 이를 최우선으로 탐색하십시오.
-                            2. **Simplicity over Skill (스킬 그 이상):**
-                               - 앞서 언급된 '비율 관계'나 '로피탈' 같은 스킬보다, **그래프를 잘라 붙이거나 평행이동**하여 눈으로 푸는 방법이 있다면 그것을 제시하십시오.
-                            3. **Cost-Benefit Analysis (가성비 판독):** - 당신이 찾은 방법이 기존 [숏컷 풀이]보다 **확실히 더 짧고 충격적일 때만** 작성하십시오.
-                               - 별다른 묘수가 없다면 솔직하게 **"이 문제는 정석/기존 숏컷이 최적입니다."**라고 출력하십시오.
+                        **[Deep Insight Protocol: 압도적 단축]**
+                        1. **Regression to Basics (중학 기하의 힘):** - 고등 미적분 문제라도 **중학교 도형의 성질(닮음, 합동, 원주각, 대칭성)**로 풀면 계산이 0이 되는 경우가 많습니다. 이를 최우선으로 탐색하십시오.
+                        2. **Simplicity over Skill (스킬 그 이상):**
+                           - 앞서 언급된 '비율 관계'나 '로피탈' 같은 스킬보다, **그래프를 잘라 붙이거나 평행이동**하여 눈으로 푸는 방법이 있다면 그것을 제시하십시오.
+                        3. **Cost-Benefit Analysis (가성비 판독):** - 당신이 찾은 방법이 기존 [숏컷 풀이]보다 **확실히 더 짧고 충격적일 때만** 작성하십시오.
+                           - 별다른 묘수가 없다면 솔직하게 **"이 문제는 정석/기존 숏컷이 최적입니다."**라고 출력하십시오.
 
-                            **[작성 지침]**
-                            - 설명하려 하지 말고, **보여주십시오.** (Show, Don't Tell)
-                            - 문어체 필수. 수식은 LaTeX($$) 사용.
+                        **[작성 지침]**
+                        - 설명하려 하지 말고, **보여주십시오.** (Show, Don't Tell)
+                        - 문어체 필수. 수식은 LaTeX($$) 사용.
 
-                            **[출력 형식]**
-                            ===CONCEPT===
-                            (문제를 관통하는 단 하나의 원리)
-                            ===HINT===
-                            (기존 해설과는 다른, 도형이나 대칭성을 이용한 새로운 시각)
-                            ===SOLUTION===
-                            (논리적 정석 풀이 - Flash 모델과 동일해도 됨)
-                            ===SHORTCUT===
-                            (### ⚡ [2] Pro Insight (Ultra-Short)
-                            **[조건]**: 일반적인 공식 적용보다 더 빠르고 기발한 풀이.
-                            - 예: "복잡한 적분 계산 대신, 그래프 대칭성을 이용해 직사각형 넓이로 치환한다.")
-                            ===CORRECTION===
-                            (학생의 사고 과정 "{safe_self_note_pro}"의 맹점 지적)
-                            """
-                            try:
-                                res_text_pro, _ = generate_content_with_fallback(final_prompt_pro, st.session_state['gemini_image'], mode="pro", status_container=None, text_placeholder=None)
-                                
-                                data_pro = parse_response_to_dict(res_text_pro)
-                                
-                                # 기존 데이터에 Pro 데이터 병합 (Append 방식)
-                                new_data = {
-                                    'pro_concept': data_pro.get('concept'),
-                                    'pro_solution': data_pro.get('solution'),
-                                    'pro_shortcut': data_pro.get('shortcut'),
-                                    'pro_correction': data_pro.get('correction')
-                                }
-                                
-                                # 세션 상태 업데이트
-                                st.session_state['analysis_result'].update(new_data)
-                                
-                                if st.session_state['saved_timestamp']:
-                                    overwrite_result_in_sheet(
-                                        st.session_state['user_name'], 
-                                        st.session_state['saved_timestamp'], 
-                                        new_data
-                                    )
-                                st.toast("Pro 분석으로 업데이트되었습니다!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Pro 분석 오류: {e}")
+                        **[출력 형식]**
+                        ===CONCEPT===
+                        (문제를 관통하는 단 하나의 원리)
+                        ===HINT===
+                        (기존 해설과는 다른, 도형이나 대칭성을 이용한 새로운 시각)
+                        ===SOLUTION===
+                        (논리적 정석 풀이 - Flash 모델과 동일해도 됨)
+                        ===SHORTCUT===
+                        (### ⚡ [2] Pro Insight (Ultra-Short)
+                        **[조건]**: 일반적인 공식 적용보다 더 빠르고 기발한 풀이.
+                        - 예: "복잡한 적분 계산 대신, 그래프 대칭성을 이용해 직사각형 넓이로 치환한다.")
+                        ===CORRECTION===
+                        (학생의 사고 과정 "{st.session_state['self_note']}"의 맹점 지적)
+                        """
+                        try:
+                            res_text_pro, _ = generate_content_with_fallback(final_prompt_pro, st.session_state['gemini_image'], mode="pro", status_container=status_container_pro, text_placeholder=text_placeholder_pro)
+                            
+                            text_placeholder_pro.empty()
+                            status_container_pro.update(label="✅ Pro 분석 완료!", state="complete", expanded=False)
+                            
+                            data_pro = parse_response_to_dict(res_text_pro)
+                            
+                            # 기존 데이터에 Pro 데이터 병합 (Append 방식)
+                            new_data = {
+                                'pro_concept': data_pro.get('concept'),
+                                'pro_solution': data_pro.get('solution'),
+                                'pro_shortcut': data_pro.get('shortcut'),
+                                'pro_correction': data_pro.get('correction')
+                            }
+                            
+                            # 세션 상태 업데이트
+                            st.session_state['analysis_result'].update(new_data)
+                            
+                            if st.session_state['saved_timestamp']:
+                                overwrite_result_in_sheet(
+                                    st.session_state['user_name'], 
+                                    st.session_state['saved_timestamp'], 
+                                    new_data
+                                )
+                            st.toast("Pro 분석으로 업데이트되었습니다!")
+                            st.rerun()
+                        except Exception as e:
+                            status_container_pro.update(label="⚠️ 오류 발생", state="error")
+                            st.error(f"Pro 분석 오류: {e}")
 
 elif menu == "📒 내 오답 노트":
     st.markdown("""
