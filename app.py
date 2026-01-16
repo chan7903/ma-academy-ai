@@ -100,36 +100,32 @@ except:
     st.error("설정 오류: Secrets 접근 실패")
     st.stop()
 
-# 🔥 [전략 확정] 모델 라인업 (원장님 지시 사항 반영)
-
-# 1. 일반 팀 (안정성 위주)
+# 🔥 [전략 확정] 모델 라인업 (안정성 + 지능)
 FLASH_MODELS = [
-    "gemini-2.5-flash",           # 최신 안정화 버전
-    "gemini-2.0-flash",           # 구관이 명관
-    "gemini-flash-latest"         # 자동 최신 배정
+    "gemini-2.5-flash",           
+    "gemini-2.0-flash",           
+    "gemini-flash-latest"         
 ]
 
-# 2. Pro 팀 (지능 위주 - 이름은 Flash지만 성능은 Pro급인 최신 모델들)
 PRO_MODELS = [
-    "gemini-3-flash-preview",     # 🔥 2026년 최신상! (무료 중 가장 똑똑함)
-    "gemini-2.0-flash-exp",       # 실험 버전 (가끔 천재적임)
-    "gemini-2.5-flash"            # 백업
+    "gemini-3-flash-preview",     
+    "gemini-2.0-flash-exp",       
+    "gemini-2.5-flash"            
 ]
 
-# 🔥 [유지] 교육과정 정밀 매핑 테이블 (Curriculum Rules)
+# 🔥 [핵심] 교육과정 정밀 매핑 (Grade-Lock System)
 CURRICULUM_GUIDE = {
     "default": "해당 학년의 교과서 개념만 사용할 것. 선행 학습 개념 사용 금지.",
-    "[22개정] 공통수학1": "✅ **[행렬(Matrix)] 사용 허용.** 케일리-해밀턴 정리 등 심화 개념 사용 가능. 단, 고급 선형대수학 개념은 지양.",
-    "[15개정] 수학(하)": "⛔ **[행렬] 절대 사용 금지.** (교육과정에 없음). 집합, 명제, 함수 관점으로만 풀 것.",
-    "[22개정] 확률과 통계": "✅ **[모비율 추정]** 적극 반영. ⛔ **[원순열] 공식($n!/n$) 직접 사용 지양.** (교과서에서 축소됨). 순열의 기본 원리로 설명할 것.",
+    "[22개정] 공통수학1": "✅ **[행렬(Matrix)] 사용 허용.** 케일리-해밀턴 등 심화 개념 가능.",
+    "[15개정] 수학(하)": "⛔ **[행렬] 절대 사용 금지.** (교육과정에 없음).",
+    "[22개정] 확률과 통계": "✅ **[모비율 추정]** 강조. ⛔ **[원순열] 공식 지양.** 기본 순열 원리로 설명.",
     "[15개정] 확률과 통계": "✅ **[원순열]** 공식 사용 가능.",
-    "수학II": "⛔ **[이계도함수($f''$), 변곡점] 절대 사용 금지.** (미적분 과정임). 오직 도함수($f'$)의 부호 변화와 증감표만으로 설명할 것. ⛔ **[로피탈 정리]** 정석 풀이에 사용 금지.",
-    "[22개정] 미적분II": "삼각함수, 지수로그함수의 미분 허용.",
-    "중": "고등학교 과정의 방정식, 함수 개념 사용 금지. 중등 기하, 닮음, 합동 중심으로 설명."
+    "수학II": "⛔ **[이계도함수($f''$), 변곡점] 정석 풀이에서 절대 금지.** (오직 증감표로만 설명). ⛔ **[로피탈]** 정석 풀이에서 금지.",
+    "미적분": "삼각함수/지수로그함수 미분, 변곡점, 이계도함수 허용.",
+    "중": "고등학교 과정(미분, 행렬 등) 절대 사용 금지. 기하학적 성질로만 설명."
 }
 
 def get_curriculum_prompt(subject):
-    """선택된 과목에 맞는 교육과정 지침을 반환하는 함수"""
     prompt = CURRICULUM_GUIDE.get("default")
     for key, rule in CURRICULUM_GUIDE.items():
         if key in subject or (key == "수학II" and ("수학II" in subject or "수학2" in subject)):
@@ -416,7 +412,7 @@ def generate_content_with_fallback(prompt, image=None, mode="flash", status_cont
                             elif "===TWIN_PROBLEM===" in full_text:
                                 status_container.update(label="👯‍♀️ 3. 쌍둥이 문제 창작 중...", state="running")
                             elif "===CONCEPT===" in full_text:
-                                status_container.update(label="🔍 1. 문제 분석 및 개념 추출 중...", state="running")
+                                status_container.update(label="🔍 1. 문제 분석 중...", state="running")
                         
                         if text_placeholder:
                             text_placeholder.markdown(full_text + "▌")
@@ -430,42 +426,46 @@ def generate_content_with_fallback(prompt, image=None, mode="flash", status_cont
     
     raise last_error
 
+# 🔥 [수정] Pro 모델 출력 오류 방지를 위한 정밀 Regex 분류기
 def parse_response_to_dict(text):
     data = {}
+    # Pro 모델이 태그에 별(**)이나 띄어쓰기를 넣는 것을 방지하기 위한 정규화
+    clean_text = re.sub(r'[\*\#]*={3,}\s*([A-Z_]+)\s*={3,}[\*\#]*', r'===\1===', text)
+    
     try:
-        if "===CONCEPT===" in text:
-            data['concept'] = text.split("===CONCEPT===")[1].split("===HINT===")[0].strip()
+        if "===CONCEPT===" in clean_text:
+            data['concept'] = clean_text.split("===CONCEPT===")[1].split("===HINT===")[0].strip()
         else: data['concept'] = "개념 분석 실패"
         
-        if "===HINT===" in text:
-            data['hint_for_image'] = text.split("===HINT===")[1].split("===SOLUTION===")[0].strip()
+        if "===HINT===" in clean_text:
+            data['hint_for_image'] = clean_text.split("===HINT===")[1].split("===SOLUTION===")[0].strip()
         else: data['hint_for_image'] = "힌트 없음"
         
-        if "===SOLUTION===" in text:
-            data['solution'] = text.split("===SOLUTION===")[1].split("===SHORTCUT===")[0].strip()
+        if "===SOLUTION===" in clean_text:
+            data['solution'] = clean_text.split("===SOLUTION===")[1].split("===SHORTCUT===")[0].strip()
         else: data['solution'] = "풀이 생성 실패"
         
-        if "===SHORTCUT===" in text:
-            data['shortcut'] = text.split("===SHORTCUT===")[1].split("===CORRECTION===")[0].strip()
+        if "===SHORTCUT===" in clean_text:
+            data['shortcut'] = clean_text.split("===SHORTCUT===")[1].split("===CORRECTION===")[0].strip()
         else: data['shortcut'] = "숏컷 없음"
         
-        if "===CORRECTION===" in text:
-            data['correction'] = text.split("===CORRECTION===")[1].split("===TWIN_PROBLEM===")[0].strip()
+        if "===CORRECTION===" in clean_text:
+            data['correction'] = clean_text.split("===CORRECTION===")[1].split("===TWIN_PROBLEM===")[0].strip()
         else: data['correction'] = "첨삭 없음"
 
-        if "===TWIN_PROBLEM===" in text:
-             data['twin_problem'] = text.split("===TWIN_PROBLEM===")[1].split("===TWIN_ANSWER===")[0].strip()
+        if "===TWIN_PROBLEM===" in clean_text:
+             data['twin_problem'] = clean_text.split("===TWIN_PROBLEM===")[1].split("===TWIN_ANSWER===")[0].strip()
         else: data['twin_problem'] = "쌍둥이 문제 없음"
 
-        if "===TWIN_ANSWER===" in text:
-             data['twin_answer'] = text.split("===TWIN_ANSWER===")[1].strip()
+        if "===TWIN_ANSWER===" in clean_text:
+             data['twin_answer'] = clean_text.split("===TWIN_ANSWER===")[1].strip()
         else: data['twin_answer'] = "정답 없음"
             
     except Exception as e:
-        data['concept'] = "자동 분석"
+        data['concept'] = "자동 분석 (Parsing Error)"
         data['solution'] = text
         data['shortcut'] = ""
-        data['hint_for_image'] = ""
+        data['hint_for_image'] = "오류"
 
     return data
 
@@ -740,7 +740,7 @@ if menu == "📸 문제 풀기":
                             학생이 이 풀이에 대해 추가 질문을 하고 있으니, 위 내용을 바탕으로 답변해줘.
                             """
 
-                        # 🔥 [Chatbot 프롬프트 수정: 정석 우선, 선행 금지]
+                        # 🔥 [채팅 프롬프트: 정석 우선 원칙]
                         tutor_prompt = f"""
                         당신은 친절하지만 **교과서적인 풀이를 중시하는** 학교 수학 선생님입니다. 
                         과목: {st.session_state['selected_subject']}
@@ -751,7 +751,7 @@ if menu == "📸 문제 풀기":
                         {history_text}
                         
                         [지시사항]
-                        1. 학생이 먼저 묻기 전까지는 **'숏컷'이나 '로피탈', '변곡점' 같은 기술은 절대 먼저 꺼내지 마세요.**
+                        1. 학생이 먼저 묻지 않는 한, **'숏컷'이나 '로피탈', '변곡점' 같은 기술은 절대 먼저 꺼내지 마세요.**
                         2. 교과서에 나오는 **정석적인 방법(증감표, 정의 등)**으로만 설명하세요.
                         3. 수식은 LaTeX($$)를 사용하고, 답변은 3문장 이내로 간결하게 하세요.
                         """
@@ -806,11 +806,11 @@ if menu == "📸 문제 풀기":
                     ===HINT===
                     (단원명 / 힌트 1줄)
                     ===SOLUTION===
-                    (### 📖 [1] 정석 풀이
+                    (### 📖 [1] 정석 풀이 (Standard)
                     **[지침 준수]**: 위 교육과정 규칙을 철저히 지키며, 교과서적인 서술형 풀이를 작성. 번호 매기기 필수. 선행 개념 절대 금지.)
                     ===SHORTCUT===
-                    (### 🍯 [2] 숏컷 풀이
-                    실전 문제 풀이용 스킬. 여기서는 선행 개념(로피탈, 비율관계 등) 사용 가능.)
+                    (### 🍯 [2] 숏컷 풀이 (Shortcut)
+                    실전 문제 풀이용 스킬. 여기서는 선행 개념(로피탈, 비율관계 등) 사용 가능. 자유롭게 기술.)
                     ===CORRECTION===
                     (학생의 오개념 교정. [총평], [틀린 부분], [교정] 순서.)
                     ===TWIN_PROBLEM===
@@ -856,24 +856,22 @@ if menu == "📸 문제 풀기":
                 res = st.session_state['analysis_result']
                 st.success("🎉 분석 완료! 오답노트에 저장되었습니다.")
                 
-                st.markdown("### 📘 상세 풀이")
-                st.markdown(f"**핵심 개념:** {res.get('concept')}")
-                st.markdown("---")
-                st.markdown(res.get('solution').replace('\n', '  \n'))
-                
-                st.markdown("---")
-                with st.expander("▶ 🔐 숏컷 해설 (핵심 비법)"):
-                    st.info(f"⚡ **숏컷:** {res.get('shortcut')}")
-                
-                if res.get('correction') and res.get('correction') != "첨삭 없음":
+                # 🔥 [UI 디자인 원복] expander 하나에 다 넣기
+                with st.expander("📘 1타 강사의 상세 풀이 & 숏컷", expanded=True):
+                    st.markdown(f"**핵심 개념:** {res.get('concept')}")
                     st.markdown("---")
-                    st.markdown(f"**📝 첨삭 지도:**\n{res.get('correction').replace(chr(10), '  '+chr(10))}")
+                    st.markdown(res.get('solution').replace('\n', '  \n'))
+                    st.markdown("---")
+                    st.info(f"⚡ **숏컷:** {res.get('shortcut')}")
+                    
+                    if res.get('correction') and res.get('correction') != "첨삭 없음":
+                        st.markdown("---")
+                        st.markdown(f"**📝 첨삭 지도:**\n{res.get('correction').replace(chr(10), '  '+chr(10))}")
 
-                st.divider()
-                st.markdown("### 📝 쌍둥이 문제 확인")
-                st.markdown(f"**문제:**\n{res.get('twin_problem')}")
-                with st.expander("▶ 🏆 정답 및 해설 확인 (도전!)"):
-                    st.write(res.get('twin_answer'))
+                with st.expander("📝 쌍둥이 문제 확인", expanded=True):
+                    st.write(res.get('twin_problem'))
+                    if st.button("정답 보기"):
+                        st.write(res.get('twin_answer'))
 
                 if st.session_state['solution_image']:
                     st.image(st.session_state['solution_image'], caption="오답노트 이미지", use_column_width=True)
@@ -883,27 +881,36 @@ if menu == "📸 문제 풀기":
                     status_container_pro = st.status("🧠 Pro 모델이 깊게 생각하는 중입니다... (약 15초)", expanded=True)
                     text_placeholder_pro = st.empty() 
                     
-                    # 🔥 [Pro 프롬프트: 통합적 사고 + 심화]
+                    # 🔥 [Pro 프롬프트 유지] 
                     final_prompt_pro = f"""
                     당신은 대한민국 최고의 수능 수학 '1타 강사'입니다.
                     학생이 '고난도 심화 분석'을 요청했습니다. 
-                    
-                    **[심화 분석 지침]**
-                    1. **Geometry First:** 수식 전개 전, 도형/기하학적 직관으로 풀 수 있는지 먼저 파악하십시오.
-                    2. **Integrated Thinking:** 중학교 기하부터 고등학교 미적분까지 모든 개념을 통합하여 최적의 풀이를 제시하십시오.
-                    3. **Dark Skills:** 로피탈, 편미분, 외적 등 교과 외 스킬이라도 효율적이라면 적극 소개하십시오.
+                    단순한 계산 나열이 아니라, **문제의 본질을 꿰뚫는 통찰(Insight)**을 보여주세요.
+
+                    **[Deep Thinking Protocol: 심층 사고 단계]**
+                    1. **[Geometry First]**: 문제를 보자마자 수식(Algebra)으로 덤비지 마세요. 
+                       - **초등학교/중학교 도형(기하)의 성질** (닮음비, 합동, 원주각, 대칭성, 특수각 삼각형)로 풀 수 있는지 최우선으로 스캔하세요.
+                       - "이 문제는 겉보기엔 미적분이지만, 실은 중2 닮음 문제입니다"와 같은 통찰을 보여주세요.
+                    2. **[Dark Skills]**: 최상위권들만 아는 **'실전 스킬(Dark Skills)'**을 적극적으로 적용하세요.
+                       - 예: 3/4차함수 비율 관계, 로피탈, 테일러 급수 근사(sin x ≈ x), 신발끈 공식, N축 스킬, 파푸스-굴딘 등.
+                    3. **[Integrated Thinking]**: 초1부터 고3까지의 모든 교육과정을 연결하여 가장 빠르고 직관적인 길을 제시하세요.
+
+                    **[핵심 지침]**
+                    1. **절대 JSON 포맷을 사용하지 마세요.**
+                    2. 아래의 구분자(===...===)를 사용하여 내용을 명확히 나누세요.
+                    3. **모든 수식은 LaTeX($$)를 사용하세요.**
 
                     **[출력 형식]**
                     ===CONCEPT===
-                    (심화 개념)
+                    (심화 개념 및 출제 의도)
                     ===HINT===
-                    (결정적 힌트)
+                    (결정적 힌트: 도형의 보조선이나 특수 스킬 언급)
                     ===SOLUTION===
-                    (논리적 정석 풀이)
+                    (논리적이고 치밀한 정석 풀이)
                     ===SHORTCUT===
-                    (기하학적 해석 및 암흑 스킬 포함)
+                    (고난도 문제용 실전 숏컷: 암흑 스킬 및 기하학적 해석 포함)
                     ===CORRECTION===
-                    (심층 피드백)
+                    (학생의 사고 과정에 대한 깊이 있는 피드백 및 함정 경고)
                     """
                     try:
                         res_text_pro, _ = generate_content_with_fallback(final_prompt_pro, st.session_state['gemini_image'], mode="pro", status_container=status_container_pro, text_placeholder=text_placeholder_pro)
@@ -977,10 +984,7 @@ elif menu == "📒 내 오답 노트":
                         st.markdown("**📝 풀이:**")
                         sol_clean = content_json.get('solution', '').replace('\n', '  \n')
                         st.markdown(sol_clean)
-                        
-                        st.markdown("---")
-                        if st.checkbox("🔐 숏컷 해설 (핵심 비법) 보기", key=f"short_view_{index}"):
-                            st.info(f"⚡ **숏컷:** {content_json.get('shortcut')}")
+                        st.info(f"⚡ 숏컷: {content_json.get('shortcut')}")
                         
                         if content_json.get('correction') and content_json.get('correction') != "첨삭 없음":
                             st.markdown("---")
@@ -997,7 +1001,7 @@ elif menu == "📒 내 오답 노트":
                             st.divider()
                             st.markdown("**📝 쌍둥이 문제**")
                             st.markdown(content_json.get('twin_problem').replace('\n', '  \n'))
-                            if st.checkbox("🏆 정답 및 해설 확인", key=f"twin_ans_view_{index}"):
+                            if st.checkbox("정답 보기", key=f"twin_ans_{index}"):
                                 st.markdown(content_json.get('twin_answer').replace('\n', '  \n'))
 
                 if st.button("✅ 오늘 복습 완료", key=f"rev_{index}"):
