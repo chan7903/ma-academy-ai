@@ -100,18 +100,21 @@ except:
     st.error("설정 오류: Secrets 접근 실패")
     st.stop()
 
-# 🔥 [전략 확정] 모델 라인업
+# 🔥 [전략 확정] "Pro 이름표 단 모델"은 전멸했습니다. (유료화)
+# 대신, 최신형 Flash 모델들이 그 자리를 대체합니다.
+
+# 1. 일반 팀 (안정성 위주)
 FLASH_MODELS = [
-    "gemini-3-flash-preview",     
-    "gemini-2.5-flash",           
-    "gemini-2.0-flash-001"        
+    "gemini-2.5-flash",           # 최신 안정화 버전
+    "gemini-2.0-flash",           # 구관이 명관
+    "gemini-flash-latest"         # 자동 최신 배정
 ]
 
-# 🔥 [수정] Pro 팀: 무료이면서 수학적 추론 능력이 뛰어난 모델들로 구성
+# 2. Pro 팀 (지능 위주 - 이름은 Flash지만 성능은 Pro급인 최신 모델들)
 PRO_MODELS = [
-    "gemini-exp-1206",            # 1순위: Thinking Model (수학 강자)
-    "gemini-3-pro-preview",       # 2순위: 차세대 Pro Preview (무료 가능성 높음)
-    "deep-research-pro-preview-12-2025" # 3순위: 심층 연구 모델
+    "gemini-3-flash-preview",     # 🔥 2026년 최신상! (무료 중 가장 똑똑함)
+    "gemini-2.0-flash-exp",       # 실험 버전 (가끔 천재적임)
+    "gemini-2.5-flash"            # 백업
 ]
 
 SHEET_ID = "1zJ2rs68pSE9Ntesg1kfqlI7G22ovfxX8Fb7v7HgxzuQ"
@@ -718,7 +721,7 @@ if menu == "📸 문제 풀기":
                             학생이 이 풀이에 대해 추가 질문을 하고 있으니, 위 내용을 바탕으로 답변해줘.
                             """
 
-                        # 🔥 [Chatbot 프롬프트 수정] 
+                        # 🔥 [채팅 프롬프트: 정석 우선 원칙]
                         tutor_prompt = f"""
                         당신은 친절하지만 핵심을 찌르는 수학 '튜터'입니다. 과목: {st.session_state['selected_subject']}
                         
@@ -762,7 +765,7 @@ if menu == "📸 문제 풀기":
                     status_container = st.status("🚀 AI 튜터가 문제를 분석하고 있습니다...", expanded=True)
                     text_placeholder = st.empty() 
                     
-                    # 🔥 [Flash 프롬프트 수정] 정석 풀이 학년 제한(Grade Lock) 추가
+                    # 🔥 [Flash 프롬프트: 교육과정 준수(Grade Lock)]
                     final_prompt_main = f"""
                     당신은 대한민국 최고의 수능 수학 '1타 강사'입니다. (과목:{st.session_state['selected_subject']})
                     이미지를 분석하여 다음 항목을 명확히 구분하여 출력하세요.
@@ -862,7 +865,7 @@ if menu == "📸 문제 풀기":
                     status_container_pro = st.status("🧠 Pro 모델이 깊게 생각하는 중입니다... (약 15초)", expanded=True)
                     text_placeholder_pro = st.empty() 
                     
-                    # 🔥 [Pro 프롬프트 유지] 기하학 우선, 암흑 스킬, 통합적 사고
+                    # 🔥 [Pro 프롬프트: Geometry First & Dark Skills & Integrated Thinking]
                     final_prompt_pro = f"""
                     당신은 대한민국 최고의 수능 수학 '1타 강사'입니다.
                     학생이 '고난도 심화 분석'을 요청했습니다. 
