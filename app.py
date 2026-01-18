@@ -347,32 +347,32 @@ def create_solution_image(original_image, hints):
 
     try:
         safe_hints = clean_text_for_plot_safe(hints)
-        ax_note.text(0.05, 0.88, "💡 핵심 Point", fontsize=24, color='#FF4500', fontweight='bold', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
+        # 제목 위치 살짝 조정
+        ax_note.text(0.05, 0.88, "💡 1타 강사의 핵심 Point", fontsize=24, color='#FF4500', fontweight='bold', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
         
-        pre_lines = safe_hints.replace(' / ', '\n').split('\n')
-        
+        lines = safe_hints.split('\n')
         y_pos = 0.72
-        for line in pre_lines:
-            line = line.strip()
-            if not line: continue
-            
-            wrapped_lines = textwrap.wrap(line, width=42)
-            
-            for i, w_line in enumerate(wrapped_lines):
-                prefix = "• " if i == 0 else "  "
-                ax_note.text(0.05, y_pos, f"{prefix}{w_line}", fontsize=21, color='#333333', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
-                y_pos -= 0.09 
+        
+        for line in lines:
+            if line.strip():
+                # 글자가 너무 길면 자르기 (그대로 유지)
+                display_line = line.strip()[:45] + "..." if len(line.strip()) > 45 else line.strip()
                 
+                ax_note.text(0.05, y_pos, f"• {display_line}", fontsize=21, color='#333333', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
+                
+                # 🔥 [수정] 줄 간격을 0.12 -> 0.2 로 대폭 늘림 (글자 겹침 해결)
+                y_pos -= 0.2 
+
         fig.canvas.draw()
     except:
         ax_note.clear()
         ax_note.axis('off')
         ax_note.add_patch(rect)
         fallback_hints = text_for_plot_fallback(hints)
-        ax_note.text(0.05, 0.85, "💡 핵심 Point", fontsize=24, color='#FF4500', fontweight='bold', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
+        ax_note.text(0.05, 0.85, "💡 1타 강사의 핵심 Point", fontsize=24, color='#FF4500', fontweight='bold', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
         
-        wrapped_fallback = textwrap.fill(fallback_hints, width=40)
-        ax_note.text(0.05, 0.65, wrapped_fallback, fontsize=21, color='#333333', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
+        # 🔥 [수정] 예외 발생 시에도 줄간격(linespacing) 2.0배 적용
+        ax_note.text(0.05, 0.65, fallback_hints, fontsize=21, color='#333333', va='top', ha='left', transform=ax_note.transAxes, wrap=True, fontproperties=font_prop, linespacing=2.0)
 
     buf = io.BytesIO()
     plt.savefig(buf, format='jpg', bbox_inches='tight', pad_inches=0)
@@ -1053,3 +1053,4 @@ elif menu == "📒 내 오답 노트":
                         time.sleep(1)
                         st.rerun()
     else: st.info("아직 저장된 오답 노트가 없습니다.")
+
