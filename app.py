@@ -347,21 +347,26 @@ def create_solution_image(original_image, hints):
 
     try:
         safe_hints = clean_text_for_plot_safe(hints)
-        # 제목 위치 살짝 조정
         ax_note.text(0.05, 0.88, "💡 1타 강사의 핵심 Point", fontsize=24, color='#FF4500', fontweight='bold', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
         
+        # 힌트 텍스트 줄바꿈 처리
         lines = safe_hints.split('\n')
         y_pos = 0.72
         
         for line in lines:
-            if line.strip():
-                # 글자가 너무 길면 자르기 (그대로 유지)
-                display_line = line.strip()[:45] + "..." if len(line.strip()) > 45 else line.strip()
+            if not line.strip(): continue
+            
+            # 🔥 [수정 핵심] 글자를 자르는 대신(Truncate), 폭에 맞춰 줄바꿈(Wrap) 합니다.
+            # width=40 은 대략 한 줄에 들어갈 글자 수입니다. (폰트 크기에 따라 조절 가능)
+            wrapped_lines = textwrap.wrap(line.strip(), width=38)
+            
+            for i, w_line in enumerate(wrapped_lines):
+                # 첫 줄엔 bullet point(•), 둘째 줄부터는 들여쓰기
+                prefix = "• " if i == 0 else "  "
+                ax_note.text(0.05, y_pos, f"{prefix}{w_line}", fontsize=21, color='#333333', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
                 
-                ax_note.text(0.05, y_pos, f"• {display_line}", fontsize=21, color='#333333', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
-                
-                # 🔥 [수정] 줄 간격을 0.12 -> 0.2 로 대폭 늘림 (글자 겹침 해결)
-                y_pos -= 0.2 
+                # 줄 간격 (폰트 크기에 맞춰 넉넉하게)
+                y_pos -= 0.13 
 
         fig.canvas.draw()
     except:
@@ -371,7 +376,7 @@ def create_solution_image(original_image, hints):
         fallback_hints = text_for_plot_fallback(hints)
         ax_note.text(0.05, 0.85, "💡 1타 강사의 핵심 Point", fontsize=24, color='#FF4500', fontweight='bold', va='top', ha='left', transform=ax_note.transAxes, fontproperties=font_prop)
         
-        # 🔥 [수정] 예외 발생 시에도 줄간격(linespacing) 2.0배 적용
+        # 예외 발생 시에도 줄바꿈 적용
         ax_note.text(0.05, 0.65, fallback_hints, fontsize=21, color='#333333', va='top', ha='left', transform=ax_note.transAxes, wrap=True, fontproperties=font_prop, linespacing=2.0)
 
     buf = io.BytesIO()
@@ -1053,4 +1058,5 @@ elif menu == "📒 내 오답 노트":
                         time.sleep(1)
                         st.rerun()
     else: st.info("아직 저장된 오답 노트가 없습니다.")
+
 
