@@ -407,15 +407,9 @@ def generate_content_with_fallback(prompt, image=None, mode="flash", status_cont
                     if chunk.text:
                         full_text += chunk.text
                         if status_container:
-                            if "===SOLUTION===" in full_text and "===TWIN_PROBLEM===" not in full_text:
-                                status_container.update(label="✍️ 2. 해설지 작성 중...", state="running")
-                            elif "===TWIN_PROBLEM===" in full_text:
-                                status_container.update(label="👯‍♀️ 3. 쌍둥이 문제 창작 중...", state="running")
-                            elif "===CONCEPT===" in full_text:
-                                status_container.update(label="🔍 1. 문제 분석 중...", state="running")
-                        
+                            pass # status 업데이트 로직 제거 (안정성)
                         if text_placeholder:
-                            text_placeholder.markdown(full_text + "▌")
+                            pass # 스트리밍 제거 (안정성)
                 
                 return full_text, f"✅ {model_name}"
             
@@ -732,10 +726,14 @@ if menu == "📸 문제 풀기":
                             학생이 이 풀이에 대해 추가 질문을 하고 있으니, 위 내용을 바탕으로 답변해줘.
                             """
 
-                        # 🔥 [Chatbot 프롬프트 수정: 정석 우선, 선행 금지]
+                        # 🔥 [Chatbot 프롬프트 수정: 정석 + 손글씨 인식]
                         tutor_prompt = f"""
                         당신은 친절하지만 **교과서적인 풀이를 중시하는** 학교 수학 선생님입니다. 
                         과목: {st.session_state['selected_subject']}
+                        
+                        **[손글씨 인식 지침]**
+                        이미지 내에 손으로 쓴 글씨가 있다면 그것은 학생의 '풀이 시도'입니다. 
+                        문제를 인식할 때는 인쇄된 텍스트를 기준으로 하고, 학생의 손글씨는 '학생이 어디서 막혔는지' 파악하는 용도로만 사용하십시오.
                         
                         {context_injection}
 
@@ -779,12 +777,17 @@ if menu == "📸 문제 풀기":
                 if st.button("🔐 정답 및 풀이 공개 (저장)", type="primary"):
                     with st.spinner("1타 강사 해설 및 쌍둥이 문제를 생성하고 저장 중입니다..."):
                         
-                        # 🔥 [Flash 프롬프트: EBS 수능특강 해설지 로봇]
+                        # 🔥 [Flash 프롬프트: EBS 수능특강 해설지 로봇 + 손글씨 인식]
                         curriculum_rules = get_curriculum_prompt(st.session_state['selected_subject'])
                         
                         final_prompt_main = f"""
-                        당신은 'EBS 수능특강 해설지 작성 로봇'입니다. (과목: {st.session_state['selected_subject']})
+                        당신은 감정이 없는 **'평가원 정답지 작성 알고리즘(Standard Answer Generator)'**입니다. (과목: {st.session_state['selected_subject']})
                         이미지를 분석하여 다음 항목을 작성하십시오.
+
+                        **[0. 이미지 인식 지침 (Handwriting Filtering)]**
+                        - 이미지 내의 **'인쇄된 텍스트(Problem)'**와 **'손글씨(Student's Work)'**를 엄격히 구분하십시오.
+                        - **[풀이 작성 시]:** 오직 '인쇄된 문제'를 기준으로 정석 풀이를 작성하십시오. 손글씨는 무시하십시오.
+                        - **[첨삭 작성 시]:** '손글씨'를 분석하여 학생이 어느 과정에서 틀렸는지 구체적으로 지적하십시오.
 
                         **[학생의 Self-Note]**
                         {safe_self_note}
@@ -792,24 +795,20 @@ if menu == "📸 문제 풀기":
 
                         **[1. 교육과정 준수 및 스타일 (Grade-Lock)]**
                         {curriculum_rules}
-                        - **[치명적 제약]:** '문제를 보면', '따라서', '이므로' 같은 **접속사와 한글 서술을 90% 삭제**하십시오.
-                        - **[수식 연결]:** 문장 대신 화살표($\rightarrow$, $\Rightarrow$)나 등호($=$)로 과정을 연결하십시오.
-                        - **[평가 금지]:** "이 문제는 모순이다", "오류다" 같은 멘트 절대 금지. (주어진 조건 내에서 최적의 답을 도출할 것)
+                        - **[No Chat]:** '살펴봅시다', '알 수 있습니다', '이므로', '따라서' 등의 **구어체 및 접속사 절대 금지.**
+                        - **[Symbol Only]:** 문장 대신 화살표($\\rightarrow$, $\\Rightarrow$)와 논리 기호($\\because$, $\\therefore$)만 사용.
+                        - **[Ending]:** 모든 문장은 명사형(~임, ~함)으로 끝내거나 수식으로 종료.
+                        - **[Structure]:** 풀이 과정을 의미 단위로 끊어서 `[Step 1]`, `[Step 2]`로 줄바꿈.
 
-                        **[2. 서술형 표준 프로토콜 (KICE Standard)]**
-                        - **[구조화]:** 문제 해결 단계를 **[Step 1]**, **[Step 2]**로 명확히 나누어 작성하십시오.
-                        - **[근거 명시]:** 수식이 비약되거나 논리가 넘어가는 구간에는 반드시 **($\because$ 근거)**를 소괄호로 명시하십시오. (예: $\because$ 산술기하 평균)
-                        - **[결론]:** 마지막 정답은 반드시 `$\therefore$ 정답: OO` 형식으로 끝내십시오.
-
-                        **[3. 숏컷 필수 체크리스트 (Priority Check)]**
+                        **[2. 숏컷 필수 체크리스트 (Priority Check)]**
                         아래 리스트는 **반드시 체크해야 할 대표적인 예시**이며, 리스트에 없더라도 해당 단원의 숏컷이 있다면 적극적으로 사용하십시오.
                         적용 가능한 기술은 **오직 [2] 숏컷 풀이**에만 반영하십시오.
                         ⚠️ **주의: 숏컷 기술들은 [1] 정석 풀이에는 절대 사용하지 마십시오. (감점 요인임)**
                         1. **[다항함수]** 3차/4차함수 비율 관계(2:1, 3:1), 넓이 공식(1/6, 1/12), 높이차 공식, 변곡점 대칭성.
-                        2. **[수열]** 등차수열 합의 기하학적 해석(상수항 없는 2차함수), 등차중항(평균), 등비수열 덩어리 합.
-                        3. **[미분/적분]** 이차함수 두 점 사이 기울기(=중점의 미분계수), 0 근처 근사(sin x ≈ x, tan x ≈ x).
-                        4. **[삼각/기하]** 사인법칙(지름의 지배), 코사인법칙(피타고라스 보정), 단위원 해석, 중선 정리.
-                        5. **[확통/경우의 수]** 같은 것이 있는 순열(묶어서 처리 vs 자리 뽑기), 여사건의 빠른 판단, 독립시행의 확률 분포 직관.
+                        2. **[수열/극한]** 등차수열 합의 기하학적 해석(상수항 없는 2차함수), 등비수열=지수함수, 테일러 근사($\\sin x \\approx x$).
+                        3. **[미분/적분]** 이차함수 두 점 사이 기울기(=중점의 미분계수), 로피탈.
+                        4. **[삼각/기하]** 사인법칙(지름의 지배), 코사인법칙(피타고라스 보정), 신발끈 공식, 파푸스 중선정리.
+                        5. **[확통/경우의 수]** 같은 것이 있는 순열, 정규분포 대칭성 활용, 중복조합 H 공식 직결.
 
                         **[출력 형식]**
                         ===CONCEPT===
@@ -823,7 +822,7 @@ if menu == "📸 문제 풀기":
                         (### 🍯 [2] 숏컷 풀이 (Skill)
                         위 [필수 체크 리스트]를 활용한 수능 실전 기술 분석가의 시선으로 작성.)
                         ===CORRECTION===
-                        (학생의 노트에 대한 **[메타인지 피드백]**을 작성하십시오.
+                        (학생의 노트와 **이미지 속 손글씨 풀이**에 대한 **[메타인지 피드백]**을 작성하십시오.
                         1. 오류 진단: **[단순 계산 / 개념 오적용 / 조건 누락 / 발문 독해]** 중 원인을 분류.
                         2. 칭찬과 지적: 학생의 사고 중 맞는 부분은 인정하고, 논리가 꼬인 '결정적 분기점'을 지적.
                         3. 행동 지침: "다음에는 문제의 OOO 단어에 동그라미를 치세요" 같은 구체적 행동 제시.)
@@ -906,14 +905,20 @@ if menu == "📸 문제 풀기":
                         safe_self_note_pro = st.session_state['self_note'].replace("{", "{{").replace("}", "}}")
                         
                         with st.spinner("Pro 모델이 문제를 깊게 분석하고 재작성 중입니다... (약 15초 소요)"):
-                            # 🔥 [Pro 프롬프트] 
+                            # 🔥 [Pro 프롬프트: 수능 해커 + 손글씨 인식 + 무제한 스킬] 
                             final_prompt_pro = f"""
                             당신은 대한민국 수학계의 정점, '수능 해커'입니다.
                             학생이 **[고난도 심화 분석]**을 요청했습니다. 
                             단순한 공식 암기나 계산 노동을 넘어, **문제의 구조를 꿰뚫는 가장 짧은 길**을 제시하십시오.
 
+                            **[0. 이미지 인식 지침 (Handwriting Filtering)]**
+                            - 이미지 내의 **'인쇄된 텍스트(Problem)'**와 **'손글씨(Student's Work)'**를 엄격히 구분하십시오.
+                            - 문제를 풀 때는 오직 '인쇄된 텍스트'에 집중하십시오.
+                            - 단, `===CORRECTION===` 파트에서는 학생의 손글씨 풀이를 분석하여 어떤 사고 과정에서 막혔는지 간파하십시오.
+
                             **[Deep Insight Protocol: 압도적 단축]**
-                            **[핵심 지침]:** 아래 리스트는 **대표적인 예시**일 뿐입니다. 리스트에 없더라도 이 문제를 **가장 빠르고 충격적으로(Ultra-Short)** 풀 수 있는 당신만의 비기(Hidden Skill)나 상위 개념이 있다면 **제한 없이** 사용하십시오.
+                            **[핵심 지침]:** 교과서적인 서술을 배제하고, **가장 '무자비(Ruthless)'하고 효율적인 '전략적 단축(Strategic Shortcut)'**과 **'직관(Intuitive Insight)'**만 사용하여 답을 찍어내십시오.
+                            아래 리스트는 **대표적인 예시**일 뿐입니다. 리스트에 없더라도 이 문제를 가장 빠르고 충격적으로 풀 수 있는 당신만의 비기(Hidden Skill)나 상위 개념이 있다면 **제한 없이** 사용하십시오.
 
                             1. **Regression to Basics (중학 기하의 힘):** 고등 미적분 문제라도 **중학교 도형의 성질(닮음, 합동, 원주각, 대칭성)**로 풀면 계산이 0이 되는 경우가 많습니다. 이를 최우선으로 탐색하십시오.
                             2. **[특수성 우선의 법칙 (Graph Traits)]:** 일반적인 식 계산 전에, 그래프가 **접하거나(Tangency), 대칭(Symmetry)이거나, 변곡점**을 지나는 특수한 상황인지 먼저 의심하십시오. 답은 99% 그곳에 있습니다.
@@ -938,7 +943,7 @@ if menu == "📸 문제 풀기":
                             **[조건]**: 일반적인 공식 적용보다 더 빠르고 기발한 풀이.
                             - 예: "복잡한 적분 계산 대신, 그래프 대칭성을 이용해 직사각형 넓이로 치환한다.")
                             ===CORRECTION===
-                            (학생의 사고 과정 "{safe_self_note_pro}"의 맹점 지적)
+                            (학생의 사고 과정 "{safe_self_note_pro}"와 **이미지 속 손글씨**의 맹점 지적)
                             """
                             try:
                                 res_text_pro, _ = generate_content_with_fallback(final_prompt_pro, st.session_state['gemini_image'], mode="pro", status_container=None, text_placeholder=None)
